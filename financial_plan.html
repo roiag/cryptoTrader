@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>תוכנית פיננסית — Trading Bot</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --card:     #1c2230;
+      --border:   #30363d;
+      --accent:   #00c896;
+      --red:      #f85149;
+      --yellow:   #e3b341;
+      --blue:     #58a6ff;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --font:     'Segoe UI', system-ui, sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 32px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header .sub { color: var(--muted); font-size: 0.85rem; margin-right: auto; }
+    .badge {
+      background: rgba(0,200,150,0.15); color: var(--accent);
+      border: 1px solid rgba(0,200,150,0.3);
+      border-radius: 20px; padding: 3px 12px; font-size: 0.78rem; font-weight: 600;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      padding: 20px 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* ── Settings Panel ── */
+    .settings { display: flex; flex-direction: column; gap: 14px; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .panel-title {
+      font-size: 0.78rem; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 0.84rem; color: var(--muted); margin-bottom: 5px;
+    }
+    .field label span.val {
+      color: var(--text); font-weight: 700; font-size: 0.9rem;
+      background: var(--card); border-radius: 5px; padding: 1px 8px;
+    }
+
+    input[type=range] {
+      width: 100%; -webkit-appearance: none; height: 4px;
+      background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      background: var(--accent); border-radius: 50%; cursor: pointer;
+      box-shadow: 0 0 6px rgba(0,200,150,0.5);
+    }
+
+    select {
+      width: 100%; background: var(--card); border: 1px solid var(--border);
+      color: var(--text); padding: 7px 10px; border-radius: 6px;
+      font-size: 0.85rem; cursor: pointer; outline: none;
+      font-family: var(--font);
+    }
+    select:focus { border-color: var(--accent); }
+
+    .toggle-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 0.85rem; margin-bottom: 10px;
+    }
+    .toggle-row:last-child { margin-bottom: 0; }
+
+    /* ── Right Panel ── */
+    .right { display: flex; flex-direction: column; gap: 16px; }
+
+    /* ── KPI Cards ── */
+    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .kpi {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .kpi .kpi-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
+    .kpi .kpi-val  { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+    .kpi .kpi-sub  { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+    .kpi.accent { border-color: rgba(0,200,150,0.35); background: rgba(0,200,150,0.05); }
+    .kpi.danger { border-color: rgba(248,81,73,0.35);  background: rgba(248,81,73,0.05); }
+    .kpi.warn   { border-color: rgba(227,179,65,0.35); background: rgba(227,179,65,0.05); }
+    .green { color: var(--accent); }
+    .red   { color: var(--red);    }
+    .yellow{ color: var(--yellow); }
+    .blue  { color: var(--blue);   }
+
+    /* ── Chart ── */
+    .chart-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px;
+    }
+    .chart-wrap h2 { font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; font-weight: 600; }
+    canvas { max-height: 280px; }
+
+    /* ── Breakdown Table ── */
+    .table-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+    }
+    .table-title {
+      padding: 12px 16px; font-size: 0.8rem; color: var(--muted);
+      font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead th {
+      padding: 9px 12px; text-align: right; color: var(--muted);
+      font-weight: 600; font-size: 0.75rem; background: var(--card);
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr { border-bottom: 1px solid rgba(48,54,61,0.5); transition: background .15s; }
+    tbody tr:hover { background: var(--card); }
+    tbody tr.breakeven { background: rgba(0,200,150,0.08); }
+    tbody tr:last-child { border-bottom: none; }
+    td { padding: 8px 12px; text-align: right; }
+    td.month { color: var(--muted); font-size: 0.78rem; }
+    td.pos { color: var(--accent); font-weight: 600; }
+    td.neg { color: var(--red);   font-weight: 600; }
+    td.breakeven-badge {
+      color: var(--accent); font-size: 0.7rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+
+    /* ── Insight Box ── */
+    .insight {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 18px;
+      font-size: 0.85rem; line-height: 1.7;
+    }
+    .insight strong { color: var(--accent); }
+    .insight .row { display: flex; gap: 6px; margin-bottom: 4px; }
+    .insight .row:last-child { margin-bottom: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+
+    footer {
+      text-align: center; padding: 20px; color: var(--muted); font-size: 0.75rem;
+      border-top: 1px solid var(--border); margin-top: 10px;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .kpis   { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.4rem">📈</span>
+  <h1>תוכנית פיננסית — Trading Bot</h1>
+  <span class="sub">חשב עלויות, רווחים ונקודת break-even</span>
+  <span class="badge" id="status-badge">מחשב...</span>
+</header>
+
+<div class="layout">
+
+  <!-- ═══ LEFT: SETTINGS ═══ -->
+  <div class="settings">
+
+    <div class="panel">
+      <div class="panel-title">💰 הון ואופק זמן</div>
+
+      <div class="field">
+        <label>הון התחלתי <span class="val" id="lbl-capital">$1,000</span></label>
+        <input type="range" id="capital" min="200" max="20000" step="100" value="1000">
+      </div>
+      <div class="field">
+        <label>אופק זמן <span class="val" id="lbl-horizon">12 חודשים</span></label>
+        <input type="range" id="horizon" min="1" max="24" step="1" value="12">
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">📊 ביצועי מסחר</div>
+
+      <div class="field">
+        <label>עסקאות ביום <span class="val" id="lbl-trades">3</span></label>
+        <input type="range" id="trades" min="1" max="10" step="0.5" value="3">
+      </div>
+      <div class="field">
+        <label>אחוז זכיות (Win Rate) <span class="val" id="lbl-winrate">55%</span></label>
+        <input type="range" id="winrate" min="30" max="80" step="1" value="55">
+      </div>
+      <div class="field">
+        <label>יחס R:R <span class="val" id="lbl-rr">1.8</span></label>
+        <input type="range" id="rr" min="1.0" max="4.0" step="0.1" value="1.8">
+      </div>
+      <div class="field">
+        <label>סיכון לעסקה <span class="val" id="lbl-risk">1%</span></label>
+        <input type="range" id="risk" min="0.3" max="3.0" step="0.1" value="1.0">
+      </div>
+      <div class="field">
+        <label>מרחק Stop-Loss <span class="val" id="lbl-sl">1.5%</span></label>
+        <input type="range" id="sl" min="0.5" max="4.0" step="0.1" value="1.5">
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🤖 מודל AI</div>
+
+      <div class="field">
+        <label style="margin-bottom:8px">מודל Vision</label>
+        <select id="model">
+          <option value="opus">Claude Opus 4.6 — $15/$75 per MTok</option>
+          <option value="sonnet" selected>Claude Sonnet 4.6 — $3/$15 per MTok</option>
+          <option value="haiku">Claude Haiku 4.5 — $0.8/$4 per MTok</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>תדירות ריצה <span class="val" id="lbl-interval">15 דק'</span></label>
+        <input type="range" id="interval" min="15" max="120" step="15" value="15">
+      </div>
+      <div class="field">
+        <label>מספר pairs <span class="val" id="lbl-pairs">2</span></label>
+        <input type="range" id="pairs" min="1" max="6" step="1" value="2">
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🏦 עמלות ותשתית</div>
+
+      <div class="field">
+        <label style="margin-bottom:8px">סוג מסחר</label>
+        <select id="exchange">
+          <option value="spot">Spot — 0.1% per leg (0.2% round trip)</option>
+          <option value="futures" selected>Futures — 0.055% per leg (0.11% round trip)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>עלות תשתית <span class="val" id="lbl-infra">$15</span></label>
+        <input type="range" id="infra" min="0" max="100" step="5" value="15">
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ RIGHT: RESULTS ═══ -->
+  <div class="right">
+
+    <!-- KPI Cards -->
+    <div class="kpis">
+      <div class="kpi danger">
+        <div class="kpi-label">עלות API חודשית</div>
+        <div class="kpi-val red" id="kpi-api">—</div>
+        <div class="kpi-sub" id="kpi-api-sub">—</div>
+      </div>
+      <div class="kpi danger">
+        <div class="kpi-label">עמלות מסחר חודשיות</div>
+        <div class="kpi-val red" id="kpi-fees">—</div>
+        <div class="kpi-sub" id="kpi-fees-sub">—</div>
+      </div>
+      <div class="kpi danger">
+        <div class="kpi-label">סה"כ עלויות חודשיות</div>
+        <div class="kpi-val red" id="kpi-total-cost">—</div>
+        <div class="kpi-sub" id="kpi-cost-sub">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">EV ביום (ברוטו)</div>
+        <div class="kpi-val" id="kpi-ev">—</div>
+        <div class="kpi-sub" id="kpi-ev-sub">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">רווח/הפסד נטו חודשי</div>
+        <div class="kpi-val" id="kpi-net">—</div>
+        <div class="kpi-sub" id="kpi-net-sub">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Break-Even</div>
+        <div class="kpi-val" id="kpi-be">—</div>
+        <div class="kpi-sub" id="kpi-be-sub">—</div>
+      </div>
+    </div>
+
+    <!-- Insight -->
+    <div class="insight" id="insight-box">
+      <div class="row"><div class="dot" style="background:var(--accent)"></div><div id="insight-1">טוען...</div></div>
+      <div class="row"><div class="dot" style="background:var(--yellow)"></div><div id="insight-2">טוען...</div></div>
+      <div class="row"><div class="dot" style="background:var(--blue)"></div><div id="insight-3">טוען...</div></div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-wrap">
+      <h2>גידול תיק לאורך זמן</h2>
+      <canvas id="chart"></canvas>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <div class="table-title">פירוט חודשי</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>חודש</th>
+              <th>תיק (תחילה)</th>
+              <th>רווח מסחר גולמי</th>
+              <th>עלות API</th>
+              <th>עמלות</th>
+              <th>תשתית</th>
+              <th>רווח נטו</th>
+              <th>תיק (סוף)</th>
+              <th>ROI מצטבר</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>מחשבון זה הוא הערכה בלבד — ביצועי עבר אינם מבטיחים ביצועי עתיד</footer>
+
+<script>
+// ── Pricing ─────────────────────────────────────────────────────────────────
+const PRICING = {
+  opus:   { in: 15,  out: 75  },
+  sonnet: { in: 3,   out: 15  },
+  haiku:  { in: 0.8, out: 4   },
+};
+
+// Tokens per Vision call
+const V_IN  = 2000;   // image ~1500 + prompt ~500
+const V_OUT = 500;    // JSON output
+
+// Tokens per Sentiment call (always Haiku)
+const S_IN  = 800;
+const S_OUT = 300;
+
+// Exchange round-trip fees
+const FEES = { spot: 0.002, futures: 0.0011 };
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const fmt = (n, dec=0) => n.toLocaleString('he-IL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const fmtD = n => (n >= 0 ? '+' : '') + '$' + fmt(Math.abs(n), 0);
+const fmtPct = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+
+// ── Slider bindings ──────────────────────────────────────────────────────────
+function bindSlider(id, labelId, format, event='input') {
+  const el = $(id), lbl = $(labelId);
+  el.addEventListener(event, () => { lbl.textContent = format(+el.value); recalc(); });
+}
+
+bindSlider('capital',  'lbl-capital',  v => '$' + fmt(v));
+bindSlider('horizon',  'lbl-horizon',  v => v + ' חודשים');
+bindSlider('trades',   'lbl-trades',   v => v);
+bindSlider('winrate',  'lbl-winrate',  v => v + '%');
+bindSlider('rr',       'lbl-rr',       v => (+v).toFixed(1));
+bindSlider('risk',     'lbl-risk',     v => v + '%');
+bindSlider('sl',       'lbl-sl',       v => v + '%');
+bindSlider('interval', 'lbl-interval', v => v + " דק'");
+bindSlider('pairs',    'lbl-pairs',    v => v);
+bindSlider('infra',    'lbl-infra',    v => '$' + v);
+
+$('model').addEventListener('change', recalc);
+$('exchange').addEventListener('change', recalc);
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+const ctx = $('chart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: { labels: [], datasets: [] },
+  options: {
+    responsive: true, maintainAspectRatio: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12 } },
+      tooltip: {
+        backgroundColor: '#1c2230', borderColor: '#30363d', borderWidth: 1,
+        titleColor: '#e6edf3', bodyColor: '#8b949e',
+        callbacks: {
+          label: ctx => ' ' + ctx.dataset.label + ': $' + fmt(ctx.parsed.y, 0)
+        }
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#8b949e', font: { size: 11 } }, grid: { color: '#21262d' } },
+      y: { ticks: { color: '#8b949e', font: { size: 11 }, callback: v => '$' + fmt(v) }, grid: { color: '#21262d' } }
+    }
+  }
+});
+
+// ── Main calculation ──────────────────────────────────────────────────────────
+function recalc() {
+  const capital   = +$('capital').value;
+  const horizon   = +$('horizon').value;
+  const trades    = +$('trades').value;
+  const winrate   = +$('winrate').value / 100;
+  const rr        = +$('rr').value;
+  const riskPct   = +$('risk').value / 100;
+  const slPct     = +$('sl').value / 100;
+  const model     = $('model').value;
+  const interval  = +$('interval').value;
+  const numPairs  = +$('pairs').value;
+  const exchange  = $('exchange').value;
+  const infra     = +$('infra').value;
+
+  // ── API Cost ────────────────────────────────────────────────────────────────
+  const cyclesPerDay    = 1440 / interval;
+  const visionPerDay    = cyclesPerDay * numPairs;
+  const sentPerDay      = cyclesPerDay * numPairs;
+  const p = PRICING[model];
+
+  const visionCostDay = visionPerDay * (V_IN / 1e6 * p.in + V_OUT / 1e6 * p.out);
+  const sentCostDay   = sentPerDay   * (S_IN / 1e6 * 0.8  + S_OUT / 1e6 * 4   );
+  const apiCostMonth  = (visionCostDay + sentCostDay) * 30;
+
+  // ── Trading Fees ─────────────────────────────────────────────────────────────
+  const feeRate        = FEES[exchange];
+  const notionalPerTrade = Math.min(capital * riskPct / slPct, capital * 0.20);
+  const feePerTrade    = notionalPerTrade * feeRate;
+  const feesMonth      = feePerTrade * trades * 30;
+
+  // ── Total cost ────────────────────────────────────────────────────────────────
+  const totalCostMonth = apiCostMonth + feesMonth + infra;
+  const totalCostDay   = totalCostMonth / 30;
+
+  // ── Trading EV ──────────────────────────────────────────────────────────────
+  // EV per trade as % of portfolio
+  const evPctTrade   = winrate * rr * riskPct - (1 - winrate) * riskPct;
+  const feePctTrade  = feePerTrade / capital;
+  const netEvPct     = evPctTrade - feePctTrade;
+
+  const dailyTradingPct = netEvPct * trades;  // as decimal, not %
+
+  // ── Monthly simulation ───────────────────────────────────────────────────────
+  let portfolio     = capital;
+  let cumProfit     = 0;
+  const months      = [];
+  let breakevenMonth = null;
+
+  for (let m = 1; m <= horizon; m++) {
+    const portStart = portfolio;
+    // compound daily returns for 30 days
+    const monthlyGrowthFactor = Math.pow(1 + dailyTradingPct, 30);
+    const grossProfit = portStart * (monthlyGrowthFactor - 1);
+
+    // costs for this month (API and infra based on fixed model, fees proportional to current portfolio)
+    const feeNotional = Math.min(portStart * riskPct / slPct, portStart * 0.20);
+    const feeMonth    = feeNotional * feeRate * trades * 30;
+    const totalCost   = apiCostMonth + feeMonth + infra;
+
+    const netProfit   = grossProfit - totalCost;
+    portfolio        += netProfit;
+    cumProfit        += netProfit;
+
+    if (breakevenMonth === null && cumProfit > 0) breakevenMonth = m;
+
+    months.push({
+      m,
+      portStart,
+      grossProfit,
+      apiCost: apiCostMonth,
+      fees: feeMonth,
+      infra,
+      netProfit,
+      portEnd: portfolio,
+      cumROI: (portfolio - capital) / capital * 100,
+    });
+  }
+
+  // ── Update KPIs ──────────────────────────────────────────────────────────────
+  const evDay$ = capital * dailyTradingPct;
+  const netMonth0$ = capital * (Math.pow(1 + dailyTradingPct, 30) - 1) - totalCostMonth;
+
+  $('kpi-api').textContent    = '$' + fmt(apiCostMonth, 0);
+  $('kpi-api-sub').textContent = `Vision: $${fmt(visionCostDay*30,0)} + Sentiment: $${fmt(sentCostDay*30,0)}`;
+
+  $('kpi-fees').textContent   = '$' + fmt(feesMonth, 0);
+  $('kpi-fees-sub').textContent = `$${fmt(feePerTrade,2)}/עסקה × ${trades} × 30`;
+
+  $('kpi-total-cost').textContent = '$' + fmt(totalCostMonth, 0);
+  $('kpi-cost-sub').textContent   = `$${fmt(totalCostDay,1)} ביום`;
+
+  const evEl = $('kpi-ev');
+  evEl.textContent  = (evDay$ >= 0 ? '+' : '') + '$' + fmt(Math.abs(evDay$), 1);
+  evEl.className    = 'kpi-val ' + (evDay$ >= 0 ? 'green' : 'red');
+  $('kpi-ev-sub').textContent = fmtPct(evPctTrade * 100) + '/עסקה × ' + trades + '/יום';
+
+  const netEl  = $('kpi-net');
+  netEl.textContent  = fmtD(netMonth0$);
+  netEl.className    = 'kpi-val ' + (netMonth0$ >= 0 ? 'green' : 'red');
+  $('kpi-net-sub').textContent = fmtPct(netMonth0$ / capital * 100) + ' מהתיק';
+
+  const beEl   = $('kpi-be');
+  if (breakevenMonth) {
+    beEl.textContent  = 'חודש ' + breakevenMonth;
+    beEl.className    = 'kpi-val green';
+    $('kpi-be-sub').textContent = `מתוך ${horizon} חודשים`;
+  } else {
+    beEl.textContent  = 'לא מגיע';
+    beEl.className    = 'kpi-val red';
+    $('kpi-be-sub').textContent = `באופק ${horizon} חודשים`;
+  }
+
+  // ── Badge ────────────────────────────────────────────────────────────────────
+  const badge = $('status-badge');
+  if (breakevenMonth) {
+    badge.textContent  = '✓ רווחי';
+    badge.style.background = 'rgba(0,200,150,0.15)';
+    badge.style.color      = '#00c896';
+    badge.style.borderColor= 'rgba(0,200,150,0.3)';
+  } else {
+    badge.textContent  = '✗ לא רווחי';
+    badge.style.background = 'rgba(248,81,73,0.15)';
+    badge.style.color      = '#f85149';
+    badge.style.borderColor= 'rgba(248,81,73,0.3)';
+  }
+
+  // ── Insights ─────────────────────────────────────────────────────────────────
+  const modelNames = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' };
+  const neededDailyPct = totalCostDay / capital * 100;
+  const actualDailyPct = dailyTradingPct * 100;
+
+  let ins1, ins2, ins3;
+
+  if (evPctTrade <= 0) {
+    ins1 = `<strong>אזהרה:</strong> ה-EV שלילי — עם win rate של ${(winrate*100).toFixed(0)}% ו-R:R של ${rr}, הסוכן מפסיד בממוצע בכל עסקה. העלה win rate ל-${(1/(1+rr)*100+1).toFixed(0)}%+ או R:R ל-${((1-winrate)/winrate).toFixed(1)}+.`;
+  } else if (breakevenMonth) {
+    ins1 = `<strong>Break-even בחודש ${breakevenMonth}:</strong> ה-EV היומי הוא ${fmtPct(actualDailyPct)} (${fmtD(evDay$)}) לעומת עלות יומית של $${fmt(totalCostDay,1)}.`;
+  } else {
+    ins1 = `ה-EV היומי ${fmtPct(actualDailyPct)} (${fmtD(evDay$)}) עדיין לא מכסה את העלות היומית של $${fmt(totalCostDay,1)} — חסרים ${fmtPct(neededDailyPct - actualDailyPct)} ביום.`;
+  }
+
+  const biggestCost = apiCostMonth > feesMonth ? `עלות API ($${fmt(apiCostMonth,0)})` : `עמלות מסחר ($${fmt(feesMonth,0)})`;
+  ins2 = `העלות הגבוהה ביותר: <strong>${biggestCost}</strong>. מודל ${modelNames[model]} עם interval ${interval} דק' ו-${numPairs} pairs = $${fmt(apiCostMonth,0)}/month API.`;
+
+  const lastMonth = months[months.length - 1];
+  const finalROI  = lastMonth ? lastMonth.cumROI : 0;
+  ins3 = `אחרי ${horizon} חודשים: תיק <strong>$${fmt(lastMonth?.portEnd ?? capital, 0)}</strong> (ROI: ${fmtPct(finalROI)}). הון התחלתי: $${fmt(capital, 0)}.`;
+
+  $('insight-1').innerHTML = ins1;
+  $('insight-2').innerHTML = ins2;
+  $('insight-3').innerHTML = ins3;
+
+  // ── Chart update ─────────────────────────────────────────────────────────────
+  const labels    = months.map(r => 'חודש ' + r.m);
+  const portVals  = months.map(r => Math.max(0, r.portEnd));
+  const cumCosts  = (() => {
+    let acc = 0;
+    return months.map(r => { acc += r.apiCost + r.fees + r.infra; return acc; });
+  })();
+  const cumRevs   = (() => {
+    let acc = capital;
+    return months.map(r => { acc += r.netProfit; return Math.max(0, acc); });
+  })();
+
+  chart.data.labels = labels;
+  chart.data.datasets = [
+    {
+      label: 'ערך תיק',
+      data: portVals,
+      borderColor: '#00c896',
+      backgroundColor: 'rgba(0,200,150,0.08)',
+      fill: true,
+      tension: 0.35,
+      pointRadius: 3,
+      pointBackgroundColor: '#00c896',
+    },
+    {
+      label: 'קו break-even ($' + fmt(capital, 0) + ')',
+      data: months.map(() => capital),
+      borderColor: '#30363d',
+      borderDash: [5, 4],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+    },
+    {
+      label: 'עלויות מצטברות',
+      data: cumCosts,
+      borderColor: '#f85149',
+      backgroundColor: 'rgba(248,81,73,0.05)',
+      fill: false,
+      tension: 0.2,
+      pointRadius: 2,
+      borderWidth: 1.5,
+    }
+  ];
+  chart.update('none');
+
+  // ── Table update ─────────────────────────────────────────────────────────────
+  const tbody = $('table-body');
+  tbody.innerHTML = '';
+  months.forEach(r => {
+    const isBreak = r.m === breakevenMonth;
+    const tr = document.createElement('tr');
+    if (isBreak) tr.className = 'breakeven';
+    tr.innerHTML = `
+      <td class="month">${r.m}${isBreak ? ' <span class="breakeven-badge">✓ BE</span>' : ''}</td>
+      <td>$${fmt(r.portStart, 0)}</td>
+      <td class="${r.grossProfit >= 0 ? 'pos' : 'neg'}">${fmtD(r.grossProfit)}</td>
+      <td class="neg">-$${fmt(r.apiCost, 0)}</td>
+      <td class="neg">-$${fmt(r.fees, 0)}</td>
+      <td class="neg">-$${fmt(r.infra, 0)}</td>
+      <td class="${r.netProfit >= 0 ? 'pos' : 'neg'}">${fmtD(r.netProfit)}</td>
+      <td><strong>$${fmt(r.portEnd, 0)}</strong></td>
+      <td class="${r.cumROI >= 0 ? 'pos' : 'neg'}">${fmtPct(r.cumROI)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+// Trigger labels
+['capital','horizon','trades','winrate','rr','risk','sl','interval','pairs','infra'].forEach(id => {
+  const el = $(id);
+  el.dispatchEvent(new Event('input'));
+});
+</script>
+</body>
+</html>

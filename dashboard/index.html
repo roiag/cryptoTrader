@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypto Trading Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { background: #09090b; }
+    .card  { background: #18181b; border: 1px solid #27272a; border-radius: 12px; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
+    .badge-buy     { background: #14532d; color: #4ade80; }
+    .badge-sell    { background: #450a0a; color: #f87171; }
+    .badge-hold    { background: #1c1917; color: #a8a29e; }
+    .badge-bullish { background: #14532d; color: #4ade80; }
+    .badge-bearish { background: #450a0a; color: #f87171; }
+    .badge-neutral { background: #1c1917; color: #a8a29e; }
+    .badge-nodata  { background: #1c1917; color: #52525b; }
+    .score-bar-wrap { position: relative; height: 8px; background: #27272a; border-radius: 4px; overflow: hidden; }
+    .score-bar-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; transition: width 0.4s, left 0.4s; }
+    .score-bar-center { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #52525b; }
+    .pulse { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .row-expand { display: none; }
+    .row-expand.open { display: table-row; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover td { background: #1f1f22 !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #18181b; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+  </style>
+</head>
+
+<body class="text-gray-300 font-mono min-h-screen">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="border-b border-zinc-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10" style="background:#09090b">
+    <div class="flex items-center gap-3">
+      <span class="text-lg font-bold text-white">⚡ Trading Dashboard</span>
+      <span id="hd-mode"  class="badge badge-hold text-xs">PAPER</span>
+      <span id="hd-tf"    class="badge badge-hold text-xs">15m</span>
+    </div>
+    <div class="flex items-center gap-4 text-xs text-zinc-500">
+      <span id="hd-last">—</span>
+      <span id="hd-dot" class="w-2 h-2 rounded-full bg-zinc-600 pulse"></span>
+      <button onclick="refresh()" class="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition">↺ Refresh</button>
+    </div>
+  </header>
+
+  <main class="p-4 space-y-4 max-w-screen-2xl mx-auto">
+
+    <!-- ── Pair Cards ──────────────────────────────────────────────────────── -->
+    <div id="pair-cards" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- BTC -->
+      <div id="card-BTC" class="card p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xl font-bold text-white">BTC/USDT</span>
+            <span class="ml-2 text-xs text-zinc-500" id="btc-ts">—</span>
+          </div>
+          <span id="btc-verdict" class="badge badge-nodata text-sm px-3 py-1">NO DATA</span>
+        </div>
+        <div class="text-center">
+          <span class="text-4xl font-bold" id="btc-final">—</span>
+          <span class="text-zinc-500 text-sm ml-1">/ ±10</span>
+        </div>
+        <div class="space-y-2" id="btc-bars">
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-16 text-zinc-500">Math</span>
+            <div class="flex-1 score-bar-wrap"><div class="score-bar-center"></div><div class="score-bar-fill" id="btc-bar-math"></div></div>
+            <span class="w-10 text-right" id="btc-score-math">—</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-16 text-zinc-500">Vision</span>
+            <div class="flex-1 score-bar-wrap"><div class="score-bar-center"></div><div class="score-bar-fill" id="btc-bar-vision"></div></div>
+            <span class="w-10 text-right" id="btc-score-vision">—</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-16 text-zinc-500">Sentiment</span>
+            <div class="flex-1 score-bar-wrap"><div class="score-bar-center"></div><div class="score-bar-fill" id="btc-bar-sentiment"></div></div>
+            <span class="w-10 text-right" id="btc-score-sentiment">—</span>
+          </div>
+        </div>
+        <div class="pt-1 border-t border-zinc-800 grid grid-cols-2 gap-2 text-xs text-zinc-500">
+          <div>F&amp;G: <span id="btc-fg" class="text-zinc-300">—</span></div>
+          <div>Urgency: <span id="btc-urgency" class="text-zinc-300">—</span></div>
+          <div class="col-span-2 truncate">Catalyst: <span id="btc-catalyst" class="text-zinc-300">—</span></div>
+          <div class="col-span-2">Last action: <span id="btc-action" class="font-bold">—</span></div>
+        </div>
+      </div>
+
+      <!-- ETH -->
+      <div id="card-ETH" class="card p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xl font-bold text-white">ETH/USDT</span>
+            <span class="ml-2 text-xs text-zinc-500" id="eth-ts">—</span>
+          </div>
+          <span id="eth-verdict" class="badge badge-nodata text-sm px-3 py-1">NO DATA</span>
+        </div>
+        <div class="text-center">
+          <span class="text-4xl font-bold" id="eth-final">—</span>
+          <span class="text-zinc-500 text-sm ml-1">/ ±10</span>
+        </div>
+        <div class="space-y-2" id="eth-bars">
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-16 text-zinc-500">Math</span>
+            <div class="flex-1 score-bar-wrap"><div class="score-bar-center"></div><div class="score-bar-fill" id="eth-bar-math"></div></div>
+            <span class="w-10 text-right" id="eth-score-math">—</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-16 text-zinc-500">Vision</span>
+            <div class="flex-1 score-bar-wrap"><div class="score-bar-center"></div><div class="score-bar-fill" id="eth-bar-vision"></div></div>
+            <span class="w-10 text-right" id="eth-score-vision">—</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-16 text-zinc-500">Sentiment</span>
+            <div class="flex-1 score-bar-wrap"><div class="score-bar-center"></div><div class="score-bar-fill" id="eth-bar-sentiment"></div></div>
+            <span class="w-10 text-right" id="eth-score-sentiment">—</span>
+          </div>
+        </div>
+        <div class="pt-1 border-t border-zinc-800 grid grid-cols-2 gap-2 text-xs text-zinc-500">
+          <div>F&amp;G: <span id="eth-fg" class="text-zinc-300">—</span></div>
+          <div>Urgency: <span id="eth-urgency" class="text-zinc-300">—</span></div>
+          <div class="col-span-2 truncate">Catalyst: <span id="eth-catalyst" class="text-zinc-300">—</span></div>
+          <div class="col-span-2">Last action: <span id="eth-action" class="font-bold">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Daily Stats ─────────────────────────────────────────────────────── -->
+    <div class="card px-5 py-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 text-center text-xs">
+      <div><div class="text-zinc-500 mb-1">Date</div><div id="stat-date" class="text-white font-bold">—</div></div>
+      <div><div class="text-zinc-500 mb-1">Executed</div><div id="stat-exec" class="text-white font-bold">—</div></div>
+      <div><div class="text-zinc-500 mb-1">HOLD</div><div id="stat-hold" class="text-zinc-400 font-bold">—</div></div>
+      <div><div class="text-zinc-500 mb-1">Wins</div><div id="stat-wins" class="text-green-400 font-bold">—</div></div>
+      <div><div class="text-zinc-500 mb-1">Losses</div><div id="stat-losses" class="text-red-400 font-bold">—</div></div>
+      <div><div class="text-zinc-500 mb-1">Win Rate</div><div id="stat-wr" class="text-white font-bold">—</div></div>
+      <div><div class="text-zinc-500 mb-1">PnL Today</div><div id="stat-pnl" class="font-bold">—</div></div>
+    </div>
+
+    <!-- ── Chart + Open Positions ─────────────────────────────────────────── -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+      <!-- Score History Chart -->
+      <div class="card p-4 lg:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-bold text-white">Score History</span>
+          <div class="flex gap-2 text-xs">
+            <button onclick="setChartSymbol('BTC/USDT')" id="btn-btc"
+              class="px-3 py-1 rounded bg-orange-500 text-white font-bold">BTC</button>
+            <button onclick="setChartSymbol('ETH/USDT')" id="btn-eth"
+              class="px-3 py-1 rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600">ETH</button>
+          </div>
+        </div>
+        <div class="relative h-56">
+          <canvas id="scoreChart"></canvas>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-3 text-xs justify-center">
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-blue-400"></span> Math</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-violet-400"></span> Vision</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-yellow-400"></span> Sentiment</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-white" style="height:2px"></span> Final</span>
+        </div>
+      </div>
+
+      <!-- Open Positions -->
+      <div class="card p-4 flex flex-col">
+        <div class="text-sm font-bold text-white mb-3">Open Positions</div>
+        <div id="open-positions" class="flex-1 overflow-auto text-xs">
+          <div class="text-zinc-500 text-center py-6">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Decision Log ────────────────────────────────────────────────────── -->
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-sm font-bold text-white">Decision Log</span>
+        <div class="flex gap-2 text-xs">
+          <select id="filter-symbol" onchange="loadDecisions()"
+            class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300">
+            <option value="">All Pairs</option>
+            <option value="BTC/USDT">BTC/USDT</option>
+            <option value="ETH/USDT">ETH/USDT</option>
+          </select>
+          <select id="filter-limit" onchange="loadDecisions()"
+            class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-zinc-500 border-b border-zinc-800">
+              <th class="text-left py-2 pr-3 whitespace-nowrap">Time</th>
+              <th class="text-left py-2 pr-3">Symbol</th>
+              <th class="text-left py-2 pr-3">Action</th>
+              <th class="text-right py-2 pr-3">Math</th>
+              <th class="text-right py-2 pr-3">Vision</th>
+              <th class="text-right py-2 pr-3">Sent</th>
+              <th class="text-right py-2 pr-3 font-bold">Final</th>
+              <th class="text-left py-2">Reason / Entry</th>
+            </tr>
+          </thead>
+          <tbody id="decisions-tbody">
+            <tr><td colspan="8" class="text-center py-6 text-zinc-500">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Closed Trades ──────────────────────────────────────────────────── -->
+    <div class="card p-4">
+      <div class="text-sm font-bold text-white mb-3">Recent Closed Trades</div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-zinc-500 border-b border-zinc-800">
+              <th class="text-left py-2 pr-3">Time</th>
+              <th class="text-left py-2 pr-3">Symbol</th>
+              <th class="text-left py-2 pr-3">Side</th>
+              <th class="text-right py-2 pr-3">Entry</th>
+              <th class="text-right py-2 pr-3">Status</th>
+              <th class="text-right py-2">PnL</th>
+            </tr>
+          </thead>
+          <tbody id="closed-tbody">
+            <tr><td colspan="6" class="text-center py-6 text-zinc-500">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────────── -->
+  <footer class="mt-6 pb-4 text-center text-xs text-zinc-600">
+    Auto-refreshes every 30s &nbsp;·&nbsp; <span id="footer-time">—</span>
+  </footer>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let chartSymbol = 'BTC/USDT';
+let scoreChart  = null;
+let refreshTimer = null;
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  refresh();
+  refreshTimer = setInterval(refresh, 30_000);
+});
+
+async function refresh() {
+  try {
+    await Promise.all([
+      loadLatest(),
+      loadDaily(),
+      loadChart(chartSymbol),
+      loadTrades(),
+      loadDecisions(),
+    ]);
+    const now = new Date().toLocaleTimeString();
+    document.getElementById('hd-last').textContent = 'Last update: ' + now;
+    document.getElementById('footer-time').textContent = now;
+    document.getElementById('hd-dot').style.background = '#22c55e';
+    setTimeout(() => { document.getElementById('hd-dot').style.background = '#52525b'; }, 1500);
+  } catch(e) {
+    console.error('Refresh error:', e);
+  }
+}
+
+// ── Latest Scores ──────────────────────────────────────────────────────────────
+async function loadLatest() {
+  const data = await fetchJSON('/api/latest');
+  for (const pair of data.pairs) {
+    const sym = pair.symbol.replace('/USDT','').toLowerCase();
+    renderPairCard(sym, pair);
+  }
+}
+
+function renderPairCard(sym, pair) {
+  const verdict = (pair.verdict || 'NO DATA').toUpperCase();
+  const final   = pair.final_score ?? null;
+
+  // verdict badge
+  const vEl = document.getElementById(`${sym}-verdict`);
+  vEl.textContent = verdict;
+  vEl.className = 'badge text-sm px-3 py-1 ' + verdictBadgeClass(verdict);
+
+  // final score
+  const fEl = document.getElementById(`${sym}-final`);
+  if (final !== null) {
+    fEl.textContent = (final >= 0 ? '+' : '') + final.toFixed(1);
+    fEl.className = 'text-4xl font-bold ' + scoreColor(final);
+  } else {
+    fEl.textContent = '—';
+    fEl.className = 'text-4xl font-bold text-zinc-500';
+  }
+
+  // score bars
+  setBar(`${sym}-bar-math`,      `${sym}-score-math`,      pair.math_score);
+  setBar(`${sym}-bar-vision`,    `${sym}-score-vision`,    pair.vision_score);
+  setBar(`${sym}-bar-sentiment`, `${sym}-score-sentiment`, pair.sentiment_score);
+
+  // timestamp
+  const tsEl = document.getElementById(`${sym}-ts`);
+  tsEl.textContent = pair.timestamp ? fmtTime(pair.timestamp) : '—';
+
+  // sentiment info
+  const s = pair.sentiment;
+  if (s) {
+    const fgColor = s.fear_greed_value > 70 ? 'text-green-400' : s.fear_greed_value < 30 ? 'text-red-400' : 'text-yellow-400';
+    document.getElementById(`${sym}-fg`).innerHTML =
+      `<span class="${fgColor}">${s.fear_greed_value} (${s.fear_greed_label})</span>`;
+    document.getElementById(`${sym}-urgency`).textContent = s.urgency || '—';
+    const catalysts = parseCatalysts(s.catalysts);
+    document.getElementById(`${sym}-catalyst`).textContent = catalysts.length ? catalysts[0] : '—';
+  }
+
+  // last action
+  const ld = pair.last_decision;
+  if (ld) {
+    const actionEl = document.getElementById(`${sym}-action`);
+    actionEl.textContent = ld.action;
+    actionEl.className = 'font-bold ' + actionColor(ld.action);
+  }
+}
+
+function setBar(barId, scoreId, score) {
+  const bar   = document.getElementById(barId);
+  const label = document.getElementById(scoreId);
+  if (score === null || score === undefined) {
+    bar.style.cssText = 'width:0;';
+    label.textContent = '—';
+    return;
+  }
+  // bidirectional bar centered at 50%
+  const pct = Math.abs(score) / 10 * 50;
+  const color = score > 0 ? '#22c55e' : score < 0 ? '#ef4444' : '#52525b';
+  if (score >= 0) {
+    bar.style.cssText = `left:50%; width:${pct}%; background:${color};`;
+  } else {
+    bar.style.cssText = `left:${50 - pct}%; width:${pct}%; background:${color};`;
+  }
+  label.textContent = (score >= 0 ? '+' : '') + score.toFixed(1);
+  label.className = 'w-10 text-right ' + scoreColor(score);
+}
+
+// ── Daily Stats ────────────────────────────────────────────────────────────────
+async function loadDaily() {
+  const d = await fetchJSON('/api/daily');
+  document.getElementById('stat-date').textContent    = d.date || '—';
+  document.getElementById('stat-exec').textContent    = d.executed_count ?? '—';
+  document.getElementById('stat-hold').textContent    = d.hold_count ?? '—';
+  document.getElementById('stat-wins').textContent    = d.wins ?? 0;
+  document.getElementById('stat-losses').textContent  = d.losses ?? 0;
+  document.getElementById('stat-wr').textContent      = d.win_rate != null ? (d.win_rate * 100).toFixed(0) + '%' : '—';
+
+  const pnlEl = document.getElementById('stat-pnl');
+  const pnl = d.total_pnl ?? 0;
+  pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+  pnlEl.className = 'font-bold ' + (pnl >= 0 ? 'text-green-400' : 'text-red-400');
+}
+
+// ── Score Chart ────────────────────────────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  scoreChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Math',      data: [], borderColor: '#60a5fa', borderWidth: 1.5, pointRadius: 2, tension: 0.3, fill: false },
+      { label: 'Vision',    data: [], borderColor: '#a78bfa', borderWidth: 1.5, pointRadius: 2, tension: 0.3, fill: false },
+      { label: 'Sentiment', data: [], borderColor: '#facc15', borderWidth: 1.5, pointRadius: 2, tension: 0.3, fill: false },
+      { label: 'Final',     data: [], borderColor: '#ffffff', borderWidth: 2.5, pointRadius: 3, tension: 0.3, fill: false },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(1)}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#71717a', font: { size: 10 }, maxTicksLimit: 12 }, grid: { color: '#27272a' } },
+        y: {
+          min: -10, max: 10,
+          ticks: { color: '#71717a', font: { size: 10 }, stepSize: 2 },
+          grid: { color: ctx => ctx.tick.value === 0 ? '#52525b' : '#27272a' }
+        }
+      }
+    }
+  });
+}
+
+async function loadChart(symbol) {
+  const data = await fetchJSON(`/api/chart?symbol=${encodeURIComponent(symbol)}&limit=48`);
+  if (!scoreChart) return;
+  scoreChart.data.labels         = data.labels     || [];
+  scoreChart.data.datasets[0].data = data.math       || [];
+  scoreChart.data.datasets[1].data = data.vision     || [];
+  scoreChart.data.datasets[2].data = data.sentiment  || [];
+  scoreChart.data.datasets[3].data = data.final      || [];
+  scoreChart.update();
+}
+
+function setChartSymbol(sym) {
+  chartSymbol = sym;
+  document.getElementById('btn-btc').className = sym === 'BTC/USDT'
+    ? 'px-3 py-1 rounded bg-orange-500 text-white font-bold text-xs'
+    : 'px-3 py-1 rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600 text-xs';
+  document.getElementById('btn-eth').className = sym === 'ETH/USDT'
+    ? 'px-3 py-1 rounded bg-blue-500 text-white font-bold text-xs'
+    : 'px-3 py-1 rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600 text-xs';
+  loadChart(sym);
+}
+
+// ── Trades ─────────────────────────────────────────────────────────────────────
+async function loadTrades() {
+  const data = await fetchJSON('/api/trades');
+
+  // open positions
+  const openEl = document.getElementById('open-positions');
+  if (!data.open || data.open.length === 0) {
+    openEl.innerHTML = '<div class="text-zinc-500 text-center py-6 text-xs">No open positions</div>';
+  } else {
+    openEl.innerHTML = data.open.map(t => `
+      <div class="mb-2 p-2 rounded border border-zinc-700 text-xs space-y-1">
+        <div class="flex justify-between">
+          <span class="font-bold text-white">${t.symbol}</span>
+          <span class="${t.side === 'buy' ? 'text-green-400' : 'text-red-400'} font-bold">${t.side.toUpperCase()}</span>
+        </div>
+        <div class="text-zinc-400">Entry: <span class="text-white">${fmt(t.price)}</span></div>
+        <div class="flex justify-between text-zinc-500">
+          <span>SL: <span class="text-red-400">${fmt(t.sl_price)}</span></span>
+          <span>TP: <span class="text-green-400">${fmt(t.tp_price)}</span></span>
+        </div>
+        <div class="text-zinc-500">${fmtTime(t.timestamp)}</div>
+      </div>
+    `).join('');
+  }
+
+  // closed trades table
+  const closedTbody = document.getElementById('closed-tbody');
+  if (!data.closed || data.closed.length === 0) {
+    closedTbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-zinc-500">No closed trades</td></tr>';
+    return;
+  }
+  closedTbody.innerHTML = data.closed.map(t => {
+    const pnlColor = t.pnl >= 0 ? 'text-green-400' : 'text-red-400';
+    return `
+    <tr class="border-b border-zinc-800/50 hover:bg-zinc-900">
+      <td class="py-2 pr-3 text-zinc-500">${fmtTime(t.timestamp)}</td>
+      <td class="py-2 pr-3 text-white font-bold">${t.symbol}</td>
+      <td class="py-2 pr-3"><span class="${t.side === 'buy' ? 'text-green-400' : 'text-red-400'}">${t.side.toUpperCase()}</span></td>
+      <td class="py-2 pr-3 text-right">${fmt(t.price)}</td>
+      <td class="py-2 pr-3 text-right text-zinc-400">${t.status}</td>
+      <td class="py-2 text-right ${pnlColor} font-bold">${t.pnl >= 0 ? '+' : ''}${(t.pnl || 0).toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Decisions ──────────────────────────────────────────────────────────────────
+async function loadDecisions() {
+  const symbol = document.getElementById('filter-symbol').value;
+  const limit  = document.getElementById('filter-limit').value;
+  const qs = new URLSearchParams({ limit });
+  if (symbol) qs.set('symbol', symbol);
+  const data = await fetchJSON('/api/decisions?' + qs.toString());
+
+  const tbody = document.getElementById('decisions-tbody');
+  if (!data.decisions || data.decisions.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-zinc-500">No decisions yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.decisions.map((d, idx) => {
+    const actionCls = d.action === 'BUY'  ? 'badge badge-buy'
+                    : d.action === 'SELL' ? 'badge badge-sell'
+                    :                       'badge badge-hold';
+    const finalColor = scoreColor(d.final_score);
+    const rowId = 'exp-' + idx;
+
+    // reasoning lines
+    const mathLines = Array.isArray(d.math_reasoning) ? d.math_reasoning : [];
+    const visionLine = d.vision_reasoning || '';
+    const sentLine   = d.sentiment_summary || '';
+    const execInfo   = d.executed
+      ? `Entry: ${fmt(d.entry_price)} · SL: ${fmt(d.sl_price)} · TP: ${fmt(d.tp_price)} · Qty: ${d.quantity || '—'} · Risk: $${(d.risk_amount || 0).toFixed(2)}`
+      : (d.rejection_reason || '');
+
+    return `
+    <tr class="border-b border-zinc-800/50 clickable" onclick="toggleRow('${rowId}')">
+      <td class="py-2 pr-3 text-zinc-500 whitespace-nowrap">${fmtTime(d.timestamp)}</td>
+      <td class="py-2 pr-3 text-white font-bold">${d.symbol}</td>
+      <td class="py-2 pr-3"><span class="${actionCls}">${d.action}</span></td>
+      <td class="py-2 pr-3 text-right ${scoreColor(d.math_score)}">${fmtScore(d.math_score)}</td>
+      <td class="py-2 pr-3 text-right ${scoreColor(d.vision_score)}">${fmtScore(d.vision_score)}</td>
+      <td class="py-2 pr-3 text-right ${scoreColor(d.sentiment_score)}">${fmtScore(d.sentiment_score)}</td>
+      <td class="py-2 pr-3 text-right font-bold ${finalColor}">${fmtScore(d.final_score)}</td>
+      <td class="py-2 text-zinc-400 max-w-xs truncate">${execInfo}</td>
+    </tr>
+    <tr class="row-expand border-b border-zinc-800" id="${rowId}">
+      <td colspan="8" class="p-3 bg-zinc-900/50 text-xs space-y-1 text-zinc-400">
+        ${mathLines.map(l => `<div>📐 ${l}</div>`).join('')}
+        ${visionLine ? `<div>👁 ${visionLine}</div>` : ''}
+        ${sentLine   ? `<div>📰 ${sentLine}</div>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleRow(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+async function fetchJSON(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  // "2025-01-15T12:30:00.123456" → "Jan 15 12:30"
+  try {
+    const d = new Date(ts.replace(' ', 'T') + (ts.includes('T') ? '' : 'Z'));
+    return d.toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch { return ts.slice(0, 16); }
+}
+
+function fmt(val) {
+  if (val === null || val === undefined) return '—';
+  return Number(val).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function fmtScore(v) {
+  if (v === null || v === undefined) return '—';
+  return (v >= 0 ? '+' : '') + Number(v).toFixed(1);
+}
+
+function scoreColor(v) {
+  if (v === null || v === undefined) return 'text-zinc-500';
+  return v >= 3 ? 'text-green-400' : v <= -3 ? 'text-red-400' : 'text-yellow-400';
+}
+
+function actionColor(action) {
+  return action === 'BUY' ? 'text-green-400' : action === 'SELL' ? 'text-red-400' : 'text-zinc-400';
+}
+
+function verdictBadgeClass(verdict) {
+  if (!verdict || verdict === 'NO DATA') return 'badge-nodata';
+  if (verdict === 'BULLISH')  return 'badge-bullish';
+  if (verdict === 'BEARISH')  return 'badge-bearish';
+  return 'badge-neutral';
+}
+
+function parseCatalysts(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try { return JSON.parse(raw); } catch { return [String(raw)]; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# Exchange & Market Data
+ccxt==4.5.48
+websockets==15.0.1
+
+# Technical Analysis
+pandas==2.3.3
+pandas-ta==0.4.71b0
+numpy==2.2.6
+
+# AI - Claude API
+anthropic==0.79.0
+
+# Config & Env
+pydantic-settings==2.13.1
+python-dotenv==1.2.1
+
+# Scheduling
+APScheduler==3.11.2
+
+# Notifications
+requests==2.32.5
+
+# Screenshot & Image
+playwright==1.58.0
+Pillow==12.1.0
+
+# News
+feedparser==6.0.12
+
+# Utils
+loguru==0.7.3
+rich==14.2.0
+
+# Dashboard
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
