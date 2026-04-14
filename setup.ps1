@@ -271,13 +271,14 @@ function Setup-Repo {
     if (Test-Path "$REPO_DIR\.git") {
         Write-Warn "Folder '$REPO_DIR' already exists -- pulling latest changes"
         Push-Location $REPO_DIR
-        git pull origin master 2>&1 | Out-Null
+        git pull --quiet origin master
         Write-OK "Repository updated"
     }
     else {
         Write-Step "Cloning from GitHub..."
         Write-Cmd "git clone $REPO_URL"
-        git clone $REPO_URL $REPO_DIR 2>&1
+        # Note: git writes progress to stderr -- do NOT use 2>&1 here
+        git clone --progress $REPO_URL $REPO_DIR
         if ($LASTEXITCODE -ne 0) {
             Exit-Fatal "git clone failed. Check your internet connection or GitHub access."
         }
