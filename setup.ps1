@@ -1,21 +1,18 @@
 # =============================================================================
-#  CryptoTrader — Setup & First Run (Windows PowerShell)
-#  מושך מ-GitHub, מתקין סביבה, מוריד מודל Ollama, מריץ vision backtest
+#  CryptoTrader — Full Windows Setup (zero assumptions)
+#  מתקין הכל מאפס: Git, Python, Ollama, מורד repo, מריץ vision backtest
 #
-#  ONE-LINER INSTALL (PowerShell):
+#  ONE-LINER — הדבק ב-PowerShell (כל גרסה, אין צורך בהרשאות מיוחדות):
+#
 #    irm https://raw.githubusercontent.com/roiag/cryptoTrader/master/setup.ps1 | iex
 #
-#  או הורד והרץ:
-#    Invoke-WebRequest https://raw.githubusercontent.com/roiag/cryptoTrader/master/setup.ps1 -OutFile setup.ps1
-#    powershell -ExecutionPolicy Bypass -File setup.ps1
-#
 #  אפשרויות:
-#    $env:OLLAMA_MODEL  = "qwen2-vl:7b"   # מודל שונה
-#    $env:VISION_SAMPLE = "200"            # כמות עסקאות
+#    $env:OLLAMA_MODEL  = "qwen2-vl:7b"  ; irm ... | iex
+#    $env:VISION_SAMPLE = "200"           ; irm ... | iex
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference    = "SilentlyContinue"   # מהיר יותר ל-Invoke-WebRequest
+$ProgressPreference    = "SilentlyContinue"
 
 # ── הגדרות ───────────────────────────────────────────────────────────────────
 $REPO_URL      = "https://github.com/roiag/cryptoTrader.git"
@@ -23,328 +20,389 @@ $REPO_DIR      = "cryptoTrader"
 $OLLAMA_MODEL  = if ($env:OLLAMA_MODEL)  { $env:OLLAMA_MODEL }  else { "llama3.2-vision" }
 $VISION_SAMPLE = if ($env:VISION_SAMPLE) { $env:VISION_SAMPLE } else { "100" }
 $OLLAMA_PORT   = 11434
-$OllamaProcess = $null
+$INSTALL_DIR   = Join-Path $env:USERPROFILE "CryptoTrader_Setup"
+$PYTHON_VER    = "3.11.9"
+$PYTHON_URL    = "https://www.python.org/ftp/python/$PYTHON_VER/python-$PYTHON_VER-amd64.exe"
+$GIT_URL       = "https://github.com/git-for-windows/git/releases/download/v2.45.2.windows.1/Git-2.45.2-64-bit.exe"
+$OLLAMA_URL    = "https://ollama.com/download/OllamaSetup.exe"
 
-# ── פונקציות UI ──────────────────────────────────────────────────────────────
+$script:OllamaProc = $null
 
+# ── UI helpers ────────────────────────────────────────────────────────────────
 function Write-Header {
     Clear-Host
     Write-Host ""
     Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "  ║          CryptoTrader — Vision Backtest Setup        ║" -ForegroundColor Cyan
-    Write-Host "  ║     Multi-Agent Crypto Trading System by roiag       ║" -ForegroundColor Cyan
+    Write-Host "  ║       CryptoTrader — Full Automated Setup            ║" -ForegroundColor Cyan
+    Write-Host "  ║   Installs everything from scratch on Windows        ║" -ForegroundColor Cyan
     Write-Host "  ╚══════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  Repo:  $REPO_URL" -ForegroundColor DarkGray
-    Write-Host "  Model: $OLLAMA_MODEL  |  Sample: $VISION_SAMPLE trades" -ForegroundColor DarkGray
+    Write-Host "  Model:  $OLLAMA_MODEL" -ForegroundColor DarkGray
+    Write-Host "  Sample: $VISION_SAMPLE trades" -ForegroundColor DarkGray
     Write-Host ""
 }
 
-function Write-Section([string]$Title) {
+function Write-Section([string]$n, [string]$title) {
     Write-Host ""
-    Write-Host "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
-    Write-Host "  ◆  $Title" -ForegroundColor White
-    Write-Host "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
+    Write-Host "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
+    Write-Host "  ◆  Step $n — $title" -ForegroundColor White
+    Write-Host "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
 }
 
-function Write-OK([string]$Msg) {
-    Write-Host "  " -NoNewline
-    Write-Host "✓" -ForegroundColor Green -NoNewline
-    Write-Host "  $Msg"
-}
+function Write-OK([string]$m)   { Write-Host "  " -NoNewline; Write-Host "✓" -ForegroundColor Green  -NoNewline; Write-Host "  $m" }
+function Write-Fail([string]$m) { Write-Host "  " -NoNewline; Write-Host "✗" -ForegroundColor Red    -NoNewline; Write-Host "  $m" -ForegroundColor Red }
+function Write-Info([string]$m) { Write-Host "  " -NoNewline; Write-Host "→" -ForegroundColor Cyan   -NoNewline; Write-Host "  $m" }
+function Write-Warn([string]$m) { Write-Host "  " -NoNewline; Write-Host "⚠" -ForegroundColor Yellow -NoNewline; Write-Host "  $m" -ForegroundColor Yellow }
+function Write-Step([string]$m) { Write-Host "  " -NoNewline; Write-Host "..." -ForegroundColor DarkGray -NoNewline; Write-Host " $m" -ForegroundColor DarkGray }
 
-function Write-Fail([string]$Msg) {
-    Write-Host "  " -NoNewline
-    Write-Host "✗" -ForegroundColor Red -NoNewline
-    Write-Host "  $Msg" -ForegroundColor Red
-}
-
-function Write-Info([string]$Msg) {
-    Write-Host "  " -NoNewline
-    Write-Host "→" -ForegroundColor Cyan -NoNewline
-    Write-Host "  $Msg"
-}
-
-function Write-Warn([string]$Msg) {
-    Write-Host "  " -NoNewline
-    Write-Host "⚠" -ForegroundColor Yellow -NoNewline
-    Write-Host "  $Msg" -ForegroundColor Yellow
-}
-
-function Write-Step([string]$Msg) {
-    Write-Host "  " -NoNewline
-    Write-Host "..." -ForegroundColor DarkGray -NoNewline
-    Write-Host "  $Msg" -ForegroundColor DarkGray
-}
-
-function Write-Command([string]$Cmd) {
+function Write-Cmd([string]$c) {
     Write-Host ""
     Write-Host "  ┌──────────────────────────────────────────────────────┐" -ForegroundColor Cyan
-    Write-Host "  │  $Cmd" -ForegroundColor Cyan
+    Write-Host "  │  $c" -ForegroundColor Cyan
     Write-Host "  └──────────────────────────────────────────────────────┘" -ForegroundColor Cyan
     Write-Host ""
 }
 
+function Write-Download([string]$name, [string]$url) {
+    Write-Host ""
+    Write-Host "  ┌──────────────────────────────────────────────────────┐" -ForegroundColor DarkYellow
+    Write-Host "  │  Downloading $name" -ForegroundColor DarkYellow
+    Write-Host "  │  $($url.Substring(0, [Math]::Min($url.Length, 52)))" -ForegroundColor DarkGray
+    Write-Host "  └──────────────────────────────────────────────────────┘" -ForegroundColor DarkYellow
+    Write-Host ""
+}
+
+function Refresh-Path {
+    $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $user    = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:PATH = "$machine;$user"
+}
+
 function Stop-OllamaIfStarted {
-    if ($null -ne $OllamaProcess -and -not $OllamaProcess.HasExited) {
-        Write-Info "Stopping background Ollama server (PID $($OllamaProcess.Id))..."
-        Stop-Process -Id $OllamaProcess.Id -Force -ErrorAction SilentlyContinue
+    if ($null -ne $script:OllamaProc -and -not $script:OllamaProc.HasExited) {
+        Stop-Process -Id $script:OllamaProc.Id -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Exit-WithError([string]$Msg) {
+function Exit-Fatal([string]$msg) {
     Write-Host ""
-    Write-Fail "FATAL: $Msg"
+    Write-Fail "FATAL: $msg"
     Write-Host ""
-    Write-Host "  Setup aborted. Fix the error above and re-run setup.ps1" -ForegroundColor DarkGray
+    Write-Host "  Fix the issue above and re-run the script." -ForegroundColor DarkGray
     Write-Host ""
     Stop-OllamaIfStarted
     exit 1
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  STEP 1 — בדיקת תנאים מוקדמים
-# ─────────────────────────────────────────────────────────────────────────────
-function Check-Prerequisites {
-    Write-Section "Step 1/6 — Checking Prerequisites"
-    $allOk = $true
+function Download-File([string]$url, [string]$dest, [string]$label) {
+    Write-Download $label $url
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+        $sizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1)
+        Write-OK "$label downloaded (${sizeMB} MB)"
+    } catch {
+        Exit-Fatal "Failed to download $label from $url`n  $_"
+    }
+}
 
-    # Git
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if ($git) {
-        $ver = (git --version 2>&1) -replace "git version ", ""
-        Write-OK "git $ver"
-    } else {
-        Write-Fail "git is not installed"
-        Write-Info "Install from: https://git-scm.com/downloads"
-        $allOk = $false
+function Wait-ForOllama {
+    Write-Host "  → Waiting for Ollama to start" -NoNewline
+    for ($i = 0; $i -lt 40; $i++) {
+        try {
+            $null = Invoke-RestMethod "http://localhost:${OLLAMA_PORT}/api/tags" -TimeoutSec 2
+            Write-Host " ready!" -ForegroundColor Green
+            return $true
+        } catch { }
+        Write-Host "." -NoNewline
+        Start-Sleep -Seconds 1
+    }
+    Write-Host " timeout!" -ForegroundColor Red
+    return $false
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Auto-elevate to Administrator
+# ─────────────────────────────────────────────────────────────────────────────
+function Ensure-Admin {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )
+    if (-not $isAdmin) {
+        Write-Host ""
+        Write-Host "  ⚠  Administrator privileges required — re-launching..." -ForegroundColor Yellow
+        Write-Host ""
+        # שמור את הסקריפט הזה לקובץ זמני ורץ כ-Admin
+        $scriptPath = $MyInvocation.MyCommand.Path
+        if (-not $scriptPath) {
+            # רץ דרך irm | iex — שמור לקובץ זמני
+            $scriptPath = "$env:TEMP\cryptotrader_setup.ps1"
+            $MyInvocation.MyCommand.ScriptBlock | Out-String | Set-Content $scriptPath -Encoding UTF8
+        }
+        $args = "-ExecutionPolicy Bypass -File `"$scriptPath`""
+        Start-Process powershell -Verb RunAs -ArgumentList $args -Wait
+        exit 0
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STEP 1 — Git
+# ─────────────────────────────────────────────────────────────────────────────
+function Install-Git {
+    Write-Section "1/6" "Git"
+
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $ver = (git --version 2>&1) -replace "git version ",""
+        Write-OK "Git already installed: $ver"
+        return
     }
 
-    # Python
-    $script:PYTHON_CMD = $null
+    # נסה winget (Windows 11 / Windows 10 עם App Installer)
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Step "Installing Git via winget..."
+        Write-Cmd "winget install --id Git.Git --silent --accept-package-agreements --accept-source-agreements"
+        winget install --id Git.Git --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        Refresh-Path
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            Write-OK "Git installed via winget"
+            return
+        }
+    }
+
+    # Fallback — הורדה ישירה
+    $installer = "$env:TEMP\git-setup.exe"
+    Download-File $GIT_URL $installer "Git for Windows"
+    Write-Step "Installing Git silently..."
+    $p = Start-Process $installer -ArgumentList @(
+        "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-",
+        "/CLOSEAPPLICATIONS", "/COMPONENTS=icons,ext\reg\shellhere,assoc,assoc_sh"
+    ) -PassThru -Wait
+    if ($p.ExitCode -ne 0) { Exit-Fatal "Git installer exited with code $($p.ExitCode)" }
+    Refresh-Path
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        Write-OK "Git installed successfully"
+    } else {
+        Exit-Fatal "Git installed but not found in PATH. Restart PowerShell and re-run."
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STEP 2 — Python
+# ─────────────────────────────────────────────────────────────────────────────
+function Install-Python {
+    Write-Section "2/6" "Python"
+
+    # בדוק אם כבר מותקן (3.10+)
     foreach ($cmd in @("python", "python3", "py")) {
-        $py = Get-Command $cmd -ErrorAction SilentlyContinue
-        if ($py) {
-            $ver = (& $cmd --version 2>&1) -replace "Python ", ""
-            $parts = $ver.Split(".")
+        if (Get-Command $cmd -ErrorAction SilentlyContinue) {
+            $verStr = (& $cmd --version 2>&1) -replace "Python ",""
+            $parts  = $verStr.Split(".")
             if ([int]$parts[0] -ge 3 -and [int]$parts[1] -ge 10) {
-                $script:PYTHON_CMD = $cmd
-                Write-OK "Python $ver"
-                break
+                $script:PYTHON = $cmd
+                Write-OK "Python $verStr already installed"
+                return
             }
         }
     }
-    if (-not $script:PYTHON_CMD) {
-        Write-Fail "Python >= 3.10 is required"
-        Write-Info "Install from: https://python.org/downloads"
-        $allOk = $false
-    }
 
-    # Disk space
-    $drive = (Get-Location).Drive.Name + ":"
-    $disk  = Get-PSDrive -Name (Get-Location).Drive.Name -ErrorAction SilentlyContinue
-    if ($disk) {
-        $freeGB = [math]::Round($disk.Free / 1GB, 1)
-        if ($freeGB -lt 10) {
-            Write-Warn "Low disk space: ${freeGB}GB (model needs ~8GB)"
-        } else {
-            Write-OK "Disk space: ${freeGB}GB available"
+    # נסה winget
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Step "Installing Python 3.11 via winget..."
+        Write-Cmd "winget install --id Python.Python.3.11 --silent --accept-package-agreements"
+        winget install --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        Refresh-Path
+        if (Get-Command python -ErrorAction SilentlyContinue) {
+            $ver = (python --version 2>&1) -replace "Python ",""
+            $script:PYTHON = "python"
+            Write-OK "Python $ver installed via winget"
+            return
         }
     }
 
-    if (-not $allOk) {
-        Exit-WithError "Missing required tools. Install them and re-run."
+    # Fallback — הורדה ישירה
+    $installer = "$env:TEMP\python-setup.exe"
+    Download-File $PYTHON_URL $installer "Python $PYTHON_VER"
+    Write-Step "Installing Python silently (all users, adds to PATH)..."
+    $p = Start-Process $installer -ArgumentList @(
+        "/quiet",
+        "InstallAllUsers=1",
+        "PrependPath=1",
+        "Include_test=0",
+        "Include_pip=1"
+    ) -PassThru -Wait
+    if ($p.ExitCode -ne 0) { Exit-Fatal "Python installer exited with code $($p.ExitCode)" }
+    Refresh-Path
+
+    # מצא את ה-python שנוסף
+    $script:PYTHON = $null
+    foreach ($cmd in @("python", "python3")) {
+        if (Get-Command $cmd -ErrorAction SilentlyContinue) {
+            $script:PYTHON = $cmd
+            break
+        }
     }
+    # fallback לנתיב ישיר
+    $directPath = "C:\Program Files\Python311\python.exe"
+    if (-not $script:PYTHON -and (Test-Path $directPath)) {
+        $script:PYTHON = $directPath
+    }
+    if (-not $script:PYTHON) {
+        Exit-Fatal "Python installed but not found in PATH. Restart PowerShell and re-run."
+    }
+    $ver = (& $script:PYTHON --version 2>&1) -replace "Python ",""
+    Write-OK "Python $ver installed successfully"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  STEP 2 — Clone / Pull
+#  STEP 3 — Clone / Pull repo + venv + dependencies
 # ─────────────────────────────────────────────────────────────────────────────
-function Clone-Repo {
-    Write-Section "Step 2/6 — Repository"
+function Setup-Repo {
+    Write-Section "3/6" "Repository + Python Environment"
 
+    # Clone
     if (Test-Path "$REPO_DIR\.git") {
-        Write-Warn "Directory '$REPO_DIR' already exists — pulling latest changes"
+        Write-Warn "Folder '$REPO_DIR' exists — pulling latest changes"
         Push-Location $REPO_DIR
-        $pull = git pull origin master 2>&1
-        if ($pull -match "Already up to date|Fast-forward") {
-            Write-OK "Repository is up to date"
-        } else {
-            Write-OK "Repository updated"
-        }
-        Pop-Location
+        git pull origin master 2>&1 | Out-Null
+        Write-OK "Repository updated"
     } else {
-        Write-Step "Cloning $REPO_URL ..."
-        git clone $REPO_URL $REPO_DIR 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "Cloned into .\$REPO_DIR"
-        } else {
-            Exit-WithError "Failed to clone repository. Check your internet connection."
-        }
+        Write-Step "Cloning from GitHub..."
+        Write-Cmd "git clone $REPO_URL"
+        git clone $REPO_URL $REPO_DIR 2>&1
+        if ($LASTEXITCODE -ne 0) { Exit-Fatal "git clone failed. Check internet connection." }
+        Write-OK "Repository cloned to .\$REPO_DIR"
+        Push-Location $REPO_DIR
     }
 
-    Set-Location $REPO_DIR
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  STEP 3 — Python environment + dependencies
-# ─────────────────────────────────────────────────────────────────────────────
-function Setup-Python {
-    Write-Section "Step 3/6 — Python Environment"
-
-    $script:VENV_PYTHON = ".\.venv\Scripts\python.exe"
-    $script:VENV_PIP    = ".\.venv\Scripts\pip.exe"
+    # Virtual environment
+    $script:VENV_PY  = ".\.venv\Scripts\python.exe"
+    $script:VENV_PIP = ".\.venv\Scripts\pip.exe"
 
     if (Test-Path ".venv") {
         Write-OK "Virtual environment already exists"
     } else {
         Write-Step "Creating virtual environment..."
-        & $script:PYTHON_CMD -m venv .venv
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "Virtual environment created (.venv\)"
-        } else {
-            Exit-WithError "Failed to create virtual environment"
-        }
+        & $script:PYTHON -m venv .venv
+        if ($LASTEXITCODE -ne 0) { Exit-Fatal "Failed to create virtual environment" }
+        Write-OK "Virtual environment created"
     }
 
-    # Upgrade pip
     Write-Step "Upgrading pip..."
-    & $script:VENV_PYTHON -m pip install --upgrade pip -q
+    & $script:VENV_PY -m pip install --upgrade pip -q
 
     # Install requirements
-    Write-Step "Installing dependencies..."
-    Write-Host ""
-    Write-Command "pip install -r requirements.txt"
-
-    $pipOutput = & $script:VENV_PIP install -r requirements.txt 2>&1
-    $failed = $false
-    foreach ($line in $pipOutput) {
-        if ($line -match "^(Collecting|Downloading|Installing)") {
-            Write-Host "    $line" -ForegroundColor DarkGray
-        } elseif ($line -match "error|ERROR|failed|FAILED") {
-            Write-Host "    $line" -ForegroundColor Red
-            $failed = $true
-        } elseif ($line -match "Successfully installed") {
-            Write-Host "    $line" -ForegroundColor Green
+    Write-Step "Installing Python packages..."
+    Write-Cmd "pip install -r requirements.txt"
+    & $script:VENV_PIP install -r requirements.txt 2>&1 | ForEach-Object {
+        if ($_ -match "^(Collecting|Downloading|Installing|Successfully)") {
+            Write-Host "    $_" -ForegroundColor DarkGray
+        } elseif ($_ -match "error|ERROR") {
+            Write-Host "    $_" -ForegroundColor Red
         }
     }
+    if ($LASTEXITCODE -ne 0) { Exit-Fatal "pip install -r requirements.txt failed" }
 
-    if ($failed -or $LASTEXITCODE -ne 0) {
-        Exit-WithError "pip install failed. Check output above."
-    }
-
-    # mplfinance
     Write-Step "Installing mplfinance (chart renderer)..."
     & $script:VENV_PIP install mplfinance -q
-    if ($LASTEXITCODE -eq 0) {
-        Write-OK "mplfinance installed"
-    } else {
-        Exit-WithError "Failed to install mplfinance"
-    }
+    if ($LASTEXITCODE -ne 0) { Exit-Fatal "Failed to install mplfinance" }
 
-    Write-OK "All Python dependencies installed"
+    Write-OK "All Python packages installed"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  STEP 4 — Ollama
+#  STEP 4 — Ollama: install + start + pull model
 # ─────────────────────────────────────────────────────────────────────────────
 function Setup-Ollama {
-    Write-Section "Step 4/6 — Ollama Setup"
+    Write-Section "4/6" "Ollama + Vision Model"
 
-    $ollama = Get-Command ollama -ErrorAction SilentlyContinue
-    if ($ollama) {
+    # ── התקנה ─────────────────────────────────────────────────────────────────
+    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+        $installer = "$env:TEMP\OllamaSetup.exe"
+        Download-File $OLLAMA_URL $installer "Ollama"
+        Write-Step "Installing Ollama silently..."
+        $p = Start-Process $installer -ArgumentList "/SILENT" -PassThru -Wait
+        # Ollama installer might return non-zero on some machines — just check if binary exists
+        Refresh-Path
+        Start-Sleep -Seconds 3   # installer needs a moment to finish writing files
+
+        # חפש את ollama גם בנתיבים ישירים
+        $ollamaPaths = @(
+            "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe",
+            "$env:ProgramFiles\Ollama\ollama.exe",
+            "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama\ollama.exe"
+        )
+        foreach ($p in $ollamaPaths) {
+            if (Test-Path $p) {
+                $env:PATH = "$env:PATH;$(Split-Path $p)"
+                break
+            }
+        }
+        Refresh-Path
+
+        if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+            Exit-Fatal "Ollama installed but not found. Try restarting PowerShell and re-running."
+        }
         $ver = (ollama --version 2>&1 | Select-Object -First 1)
         Write-OK "Ollama installed: $ver"
     } else {
-        Write-Warn "Ollama not found"
-        Write-Host ""
-        Write-Host "  Please install Ollama manually:" -ForegroundColor Yellow
-        Write-Info "1. Go to https://ollama.com/download"
-        Write-Info "2. Download and run OllamaSetup.exe"
-        Write-Info "3. Press ENTER here when done"
-        Write-Host ""
-        Read-Host "  Press ENTER when Ollama is installed"
-        $ollama = Get-Command ollama -ErrorAction SilentlyContinue
-        if (-not $ollama) {
-            Exit-WithError "Ollama still not found. Make sure it's in your PATH and restart the terminal."
-        }
-        Write-OK "Ollama detected"
+        $ver = (ollama --version 2>&1 | Select-Object -First 1)
+        Write-OK "Ollama already installed: $ver"
     }
 
-    # Start server if not running
+    # ── הפעל שרת ──────────────────────────────────────────────────────────────
     Write-Host ""
-    Write-Info "Checking Ollama server..."
     $running = $false
     try {
-        $resp = Invoke-RestMethod "http://localhost:${OLLAMA_PORT}/api/tags" -TimeoutSec 3
+        $null = Invoke-RestMethod "http://localhost:${OLLAMA_PORT}/api/tags" -TimeoutSec 3
         $running = $true
     } catch { }
 
     if ($running) {
-        Write-OK "Ollama server is already running on port $OLLAMA_PORT"
+        Write-OK "Ollama server already running on port $OLLAMA_PORT"
     } else {
         Write-Step "Starting Ollama server in background..."
-        $script:OllamaProcess = Start-Process -FilePath "ollama" -ArgumentList "serve" `
-            -WindowStyle Hidden -PassThru -RedirectStandardOutput "$env:TEMP\ollama_server.log"
+        $script:OllamaProc = Start-Process -FilePath "ollama" -ArgumentList "serve" `
+            -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput "$env:TEMP\ollama_out.log" `
+            -RedirectStandardError  "$env:TEMP\ollama_err.log"
 
-        # Wait up to 30 seconds
-        Write-Host "  → Waiting for Ollama to start" -NoNewline
-        $ready = $false
-        for ($i = 0; $i -lt 30; $i++) {
-            try {
-                $null = Invoke-RestMethod "http://localhost:${OLLAMA_PORT}/api/tags" -TimeoutSec 2
-                $ready = $true
-                break
-            } catch { }
-            Write-Host "." -NoNewline
-            Start-Sleep -Seconds 1
+        if (-not (Wait-ForOllama)) {
+            $log = Get-Content "$env:TEMP\ollama_err.log" -ErrorAction SilentlyContinue | Select-Object -Last 5
+            Exit-Fatal "Ollama server failed to start.`n  Last log: $($log -join ' | ')"
         }
-        Write-Host ""
-        if ($ready) {
-            Write-OK "Ollama server is ready (PID: $($script:OllamaProcess.Id))"
-        } else {
-            Exit-WithError "Ollama server did not start within 30 seconds. Check $env:TEMP\ollama_server.log"
-        }
+        Write-OK "Ollama server is ready (PID: $($script:OllamaProc.Id))"
     }
 
-    # Pull model
+    # ── משוך מודל ─────────────────────────────────────────────────────────────
     Write-Host ""
-    Write-Info "Checking model: $OLLAMA_MODEL"
-
-    $modelList = ollama list 2>&1
     $baseModel = $OLLAMA_MODEL.Split(":")[0]
+    $modelList = (ollama list 2>&1) -join " "
+
     if ($modelList -match $baseModel) {
         Write-OK "Model '$OLLAMA_MODEL' already downloaded"
     } else {
-        Write-Warn "Model '$OLLAMA_MODEL' not found locally — downloading now"
-        Write-Host "  Model size: ~5-8 GB — this may take several minutes" -ForegroundColor DarkGray
+        Write-Warn "Downloading model '$OLLAMA_MODEL' — this may take 10-30 minutes (~6-8 GB)"
+        Write-Host "  Progress is shown below by Ollama directly:" -ForegroundColor DarkGray
         Write-Host ""
-        Write-Command "ollama pull $OLLAMA_MODEL"
+        Write-Cmd "ollama pull $OLLAMA_MODEL"
 
         ollama pull $OLLAMA_MODEL
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host ""
-            Write-OK "Model '$OLLAMA_MODEL' downloaded successfully"
-        } else {
-            Write-Host ""
-            Exit-WithError "Failed to pull model '$OLLAMA_MODEL'.
-       Try a different model:
-         `$env:OLLAMA_MODEL='qwen2-vl:7b'; .\setup.ps1
-         `$env:OLLAMA_MODEL='moondream';   .\setup.ps1"
+        if ($LASTEXITCODE -ne 0) {
+            Exit-Fatal "Failed to download model '$OLLAMA_MODEL'.
+  Try a smaller model: `$env:OLLAMA_MODEL='moondream'; irm ... | iex"
         }
+        Write-Host ""
+        Write-OK "Model '$OLLAMA_MODEL' ready"
     }
 
-    # Smoke test
+    # ── בדיקת תגובה ───────────────────────────────────────────────────────────
     Write-Host ""
-    Write-Step "Running model smoke test..."
-    Write-Command "ollama run $OLLAMA_MODEL `"Reply with exactly: OK`""
-
-    $testResp = ollama run $OLLAMA_MODEL "Reply with exactly: OK" 2>&1 | Select-Object -First 3
-    if ($testResp -match "ok") {
-        Write-OK "Model responded correctly"
+    Write-Step "Testing model response (first response may be slow)..."
+    $testOut = ollama run $OLLAMA_MODEL "Say only: READY" 2>&1 | Select-Object -First 2
+    if ($testOut -match "READY|ready|ok|OK") {
+        Write-OK "Model is responding correctly"
     } else {
-        Write-Warn "Unexpected response: $($testResp -join ' ')"
-        Write-Warn "Vision quality may vary — continuing anyway"
+        Write-Warn "Unexpected response: $($testOut -join ' ')"
+        Write-Warn "Model may still work — continuing..."
     }
 }
 
@@ -352,105 +410,106 @@ function Setup-Ollama {
 #  STEP 5 — Math Backtest
 # ─────────────────────────────────────────────────────────────────────────────
 function Run-MathBacktest {
-    Write-Section "Step 5/6 — Math Backtest (Generating Signal Data)"
+    Write-Section "5/6" "Math Backtest — Generating Signal Data"
 
     if (Test-Path "combined_results.csv") {
         $rows = (Get-Content "combined_results.csv").Count
-        Write-OK "combined_results.csv already exists ($rows rows — skipping math backtest)"
-        Write-Info "Delete combined_results.csv and re-run to regenerate."
+        Write-OK "combined_results.csv already exists ($rows rows) — skipping"
+        Write-Info "Delete the file and re-run to regenerate."
         return
     }
 
     Write-Host ""
     Write-Info "Running math backtest on BTC + ETH (2022-2025)..."
-    Write-Host "  First run downloads ~100k candles — may take 5-10 minutes" -ForegroundColor DarkGray
-    Write-Host "  Subsequent runs use local cache and are instant" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Command "python run_backtest.py --both --export results.csv"
+    Write-Host "  Downloads ~100k candles on first run — usually 5-10 minutes" -ForegroundColor DarkGray
+    Write-Host "  Cached locally for all future runs" -ForegroundColor DarkGray
+    Write-Cmd "python run_backtest.py --both --threshold 4.5 --export results.csv"
 
-    & $script:VENV_PYTHON run_backtest.py `
+    & $script:VENV_PY run_backtest.py `
         --both `
         --threshold 4.5 `
         --start 2022-01-01 `
         --end 2025-01-01 `
         --export results.csv
 
-    if ($LASTEXITCODE -eq 0 -and (Test-Path "combined_results.csv")) {
-        $rows = (Get-Content "combined_results.csv").Count
-        Write-Host ""
-        Write-OK "Math backtest complete — $rows trade signals saved"
-    } else {
-        Exit-WithError "Math backtest failed. Check the output above."
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path "combined_results.csv")) {
+        Exit-Fatal "Math backtest failed. Check output above."
     }
+    $rows = (Get-Content "combined_results.csv").Count
+    Write-OK "Math backtest complete — $rows trade signals saved"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  STEP 6 — Vision Backtest
 # ─────────────────────────────────────────────────────────────────────────────
 function Run-VisionBacktest {
-    Write-Section "Step 6/6 — Vision Backtest"
+    Write-Section "6/6" "Vision Backtest"
 
     Write-Host ""
-    Write-Info "Analyzing $VISION_SAMPLE trades with model: $OLLAMA_MODEL"
-    Write-Host "  For each trade: renders chart → sends to Ollama → records result" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Command "python run_vision_backtest.py --sample $VISION_SAMPLE --model $OLLAMA_MODEL"
+    Write-Info "Analyzing $VISION_SAMPLE trades with: $OLLAMA_MODEL"
+    Write-Host "  Renders chart → sends to Ollama → records agreement with math signal" -ForegroundColor DarkGray
+    Write-Cmd "python run_vision_backtest.py --sample $VISION_SAMPLE --model $OLLAMA_MODEL"
 
-    & $script:VENV_PYTHON run_vision_backtest.py `
+    & $script:VENV_PY run_vision_backtest.py `
         --input combined_results.csv `
         --model $OLLAMA_MODEL `
         --sample $VISION_SAMPLE `
         --output vision_results.csv `
         --delay 0.3
 
-    if ($LASTEXITCODE -eq 0 -and (Test-Path "vision_results.csv")) {
-        $rows = (Get-Content "vision_results.csv").Count
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Vision backtest had errors"
         Write-Host ""
-        Write-OK "Vision backtest complete — vision_results.csv ($rows rows)"
-    } else {
-        Write-Fail "Vision backtest encountered errors"
-        Write-Host ""
-        Write-Host "  Possible causes:" -ForegroundColor DarkGray
-        Write-Info "Ollama ran out of memory → try: `$env:OLLAMA_MODEL='moondream'; .\setup.ps1"
-        Write-Info "Model not responding    → run 'ollama serve' in another terminal"
-        Write-Info "No combined_results.csv → delete it and re-run"
+        Write-Host "  Possible fixes:" -ForegroundColor DarkGray
+        Write-Info "Out of memory → use smaller model: `$env:OLLAMA_MODEL='moondream'"
+        Write-Info "Ollama stopped → re-run the script (server will restart)"
         Stop-OllamaIfStarted
         exit 1
+    }
+
+    if (Test-Path "vision_results.csv") {
+        $rows = (Get-Content "vision_results.csv").Count
+        Write-OK "Vision backtest complete — vision_results.csv ($rows rows)"
     }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  FINAL SUMMARY
+#  Summary
 # ─────────────────────────────────────────────────────────────────────────────
 function Write-Summary {
     Write-Host ""
     Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
-    Write-Host "  ║                  Setup Complete!                     ║" -ForegroundColor Green
+    Write-Host "  ║                  All Done!                           ║" -ForegroundColor Green
     Write-Host "  ╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
     Write-Host ""
-    Write-OK "Repository cloned/updated"
-    Write-OK "Python environment ready (.venv\)"
-    Write-OK "Ollama model: $OLLAMA_MODEL"
-    Write-OK "Math backtest: combined_results.csv"
+    Write-OK "Git installed"
+    Write-OK "Python installed"
+    Write-OK "Ollama + model: $OLLAMA_MODEL"
+    Write-OK "Math backtest:  combined_results.csv"
     Write-OK "Vision backtest: vision_results.csv"
     Write-Host ""
     Write-Host "  Next steps:" -ForegroundColor White
-    Write-Info "Open vision_results.csv to see AGREE vs DISAGREE win rates"
-    Write-Info "Run full backtest:  python run_backtest.py --both"
-    Write-Info "Run full vision:    python run_vision_backtest.py"
-    Write-Info "Start live bot:     python scheduler.py"
+    Write-Info "Open vision_results.csv — filter 'agreement' column"
+    Write-Info "  AGREE trades → higher win rate?"
+    Write-Info "  If yes → vision IS a useful filter"
     Write-Host ""
-    Write-Host "  Results in: $(Get-Location)" -ForegroundColor DarkGray
+    Write-Info "Run full vision (all trades): cd $REPO_DIR; python run_vision_backtest.py"
+    Write-Info "Start live bot:               cd $REPO_DIR; python scheduler.py"
     Write-Host ""
+    Write-Host "  Folder: $(Get-Location)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  Press any key to close..." -ForegroundColor DarkGray
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────────────────────────────────────
+Ensure-Admin
 Write-Header
-Check-Prerequisites
-Clone-Repo
-Setup-Python
+Install-Git
+Install-Python
+Setup-Repo        # clone + venv + pip (גם עושה Push-Location ל-REPO_DIR)
 Setup-Ollama
 Run-MathBacktest
 Run-VisionBacktest
