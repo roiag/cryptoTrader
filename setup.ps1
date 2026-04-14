@@ -1,9 +1,12 @@
 # =============================================================================
 #  CryptoTrader — Setup & First Run (Windows PowerShell)
 #  מושך מ-GitHub, מתקין סביבה, מוריד מודל Ollama, מריץ vision backtest
-# =============================================================================
 #
-#  הרצה:
+#  ONE-LINER INSTALL (PowerShell):
+#    irm https://raw.githubusercontent.com/roiag/cryptoTrader/master/setup.ps1 | iex
+#
+#  או הורד והרץ:
+#    Invoke-WebRequest https://raw.githubusercontent.com/roiag/cryptoTrader/master/setup.ps1 -OutFile setup.ps1
 #    powershell -ExecutionPolicy Bypass -File setup.ps1
 #
 #  אפשרויות:

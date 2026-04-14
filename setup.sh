@@ -2,6 +2,17 @@
 # =============================================================================
 #  CryptoTrader — Setup & First Run
 #  מושך מ-GitHub, מתקין סביבה, מוריד מודל Ollama, מריץ vision backtest
+#
+#  ONE-LINER INSTALL (Linux / Mac / Windows Git Bash):
+#    bash <(curl -fsSL https://raw.githubusercontent.com/roiag/cryptoTrader/master/setup.sh)
+#
+#  או הורד והרץ:
+#    curl -fsSL https://raw.githubusercontent.com/roiag/cryptoTrader/master/setup.sh -o setup.sh
+#    bash setup.sh
+#
+#  אפשרויות:
+#    OLLAMA_MODEL=qwen2-vl:7b bash setup.sh
+#    VISION_SAMPLE=200        bash setup.sh
 # =============================================================================
 
 set -euo pipefail
