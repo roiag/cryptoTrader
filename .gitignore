@@ -22,8 +22,14 @@ backtest/cache/
 *.sqlite
 
 # Backtest results (can be regenerated)
-*_results.csv
-combined_results.csv
+*_results*.csv
+combined_results*.csv
+
+# Claude memory
+.claude/
+
+# Archives
+*.zip
 
 # Screenshots
 storage/screenshots/
