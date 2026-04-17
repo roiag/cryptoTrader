@@ -189,6 +189,18 @@ async def job_weekly_review() -> None:
         telegram.notify_error("Weekly Review", str(e))
 
 
+# ── Job: MetaAgent Weekly Analysis ────────────────────────────────────────────
+
+async def job_meta_agent() -> None:
+    try:
+        from agents.meta_agent import MetaAgent
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: MetaAgent().run_weekly(days=30))
+    except Exception as e:
+        logger.error(f"MetaAgent error: {e}")
+        telegram.notify_error("MetaAgent", str(e))
+
+
 # ── Shutdown ───────────────────────────────────────────────────────────────────
 
 async def shutdown(scheduler: AsyncIOScheduler) -> None:
@@ -251,6 +263,14 @@ async def main() -> None:
         trigger=CronTrigger(day_of_week="mon", hour=8, minute=0),
         id="weekly_review",
         name="Weekly Performance Review",
+    )
+
+    # MetaAgent Analysis - every Monday at 09:00 UTC (after ReviewAgent)
+    scheduler.add_job(
+        job_meta_agent,
+        trigger=CronTrigger(day_of_week="mon", hour=9, minute=0),
+        id="meta_agent",
+        name="MetaAgent Weekly Analysis",
     )
 
     scheduler.start()

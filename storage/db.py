@@ -119,6 +119,29 @@ def init_db() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS meta_suggestions (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at        TEXT    NOT NULL,
+                -- הצעת MetaAgent
+                category          TEXT    NOT NULL,  -- math / vision / sentiment / execution / risk
+                description       TEXT    NOT NULL,  -- תיאור ההצעה בטקסט חופשי
+                suggested_change  TEXT    NOT NULL,  -- שינוי ספציפי (JSON)
+                -- ניתוח attribution שהוביל להצעה
+                attribution_data  TEXT,              -- JSON עם הנתונים הסטטיסטיים
+                -- תוצאת backtest validation
+                backtest_pf_before REAL,             -- profit factor לפני השינוי
+                backtest_pf_after  REAL,             -- profit factor אחרי השינוי
+                backtest_wr_before REAL,
+                backtest_wr_after  REAL,
+                backtest_trades    INTEGER,
+                validated          INTEGER DEFAULT 0, -- 1 = עבר בקטסט, 0 = לא נבדק עדיין
+                -- אימוץ
+                adopted            INTEGER DEFAULT 0, -- 1 = אומץ ע"י המשתמש
+                adopted_at         TEXT,
+                notes              TEXT               -- הערות ידניות
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS trade_outcomes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 trade_id        INTEGER NOT NULL,
@@ -499,6 +522,56 @@ def get_open_symbols_from_db() -> list[str]:
             "SELECT symbol FROM trades WHERE status = 'open'"
         ).fetchall()
     return [r[0] for r in rows]
+
+
+def save_meta_suggestion(
+    category: str,
+    description: str,
+    suggested_change: dict,
+    attribution_data: dict | None = None,
+    backtest_pf_before: float | None = None,
+    backtest_pf_after: float | None = None,
+    backtest_wr_before: float | None = None,
+    backtest_wr_after: float | None = None,
+    backtest_trades: int | None = None,
+    validated: bool = False,
+) -> int:
+    """שומר הצעת MetaAgent עם תוצאות validation."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO meta_suggestions (
+                created_at, category, description, suggested_change,
+                attribution_data,
+                backtest_pf_before, backtest_pf_after,
+                backtest_wr_before, backtest_wr_after,
+                backtest_trades, validated
+            ) VALUES (?,?,?,?,?, ?,?,?,?,?,?)
+            """,
+            (
+                datetime.utcnow().isoformat(),
+                category, description,
+                json.dumps(suggested_change),
+                json.dumps(attribution_data or {}),
+                backtest_pf_before, backtest_pf_after,
+                backtest_wr_before, backtest_wr_after,
+                backtest_trades,
+                int(validated),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_meta_suggestions(limit: int = 50) -> list[dict]:
+    """שולף הצעות MetaAgent אחרונות."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM meta_suggestions ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_decisions(symbol: str | None = None, limit: int = 50) -> list[dict]:

@@ -20,6 +20,11 @@ from loguru import logger
 from agents.math_agent import MathAgent
 from data.indicators import calculate_all, get_latest_snapshot
 
+# ── BacktestConfig defaults ────────────────────────────────────────────────────
+_DEFAULT_THRESHOLD    = MathAgent.TRADE_THRESHOLD
+_DEFAULT_ATR_MUL      = MathAgent.ATR_SL_MULTIPLIER
+_DEFAULT_RR           = MathAgent.RR_RATIO
+
 # ── ציונים ל-Fear & Greed ──────────────────────────────────────────────────────
 # הגישה: contrarian — fear גבוה = bullish bias, greed גבוה = bearish bias
 def fg_to_score(value: int) -> float:
@@ -60,14 +65,16 @@ class BacktestConfig:
     start:            str   = "2022-01-01"
     end:              str   = "2025-01-01"
     # אסטרטגיה
-    threshold:        float = 4.5     # סף ציון לכניסה
+    threshold:        float = _DEFAULT_THRESHOLD
     math_weight:      float = 0.80    # Vision = 0, redistribute
     sentiment_weight: float = 0.20
-    # ניהול סיכון
-    max_risk_pct:     float = 0.01    # 1% סיכון לעסקה
-    slippage_pct:     float = 0.0005  # 0.05% slippage בכניסה
-    max_bars_held:    int   = 96      # timeout: 24 שעות ב-15m
-    lookback:         int   = 210     # נרות warm-up לאינדיקטורים
+    # ניהול סיכון — ניתן לשינוי ע"י optimizer
+    atr_sl_multiplier: float = _DEFAULT_ATR_MUL
+    rr_ratio:          float = _DEFAULT_RR
+    max_risk_pct:      float = 0.01    # 1% סיכון לעסקה
+    slippage_pct:      float = 0.0005  # 0.05% slippage בכניסה
+    max_bars_held:     int   = 96      # timeout: 24 שעות ב-15m
+    lookback:          int   = 210     # נרות warm-up לאינדיקטורים
 
 
 # ── Engine ─────────────────────────────────────────────────────────────────────
@@ -79,8 +86,7 @@ class BacktestEngine:
 
     def __init__(self, config: BacktestConfig) -> None:
         self.cfg = config
-        # יוצרים instance של MathAgent ללא exchange (לא צריך — נתונים כבר טעונים)
-        self._agent = object.__new__(MathAgent)
+        self._agent = MathAgent()
 
     def run(
         self,
@@ -128,9 +134,15 @@ class BacktestEngine:
                     open_trade = None
                 continue   # רק עסקה אחת בו-זמנית
 
-            # ── חישוב ציון ──────────────────────────────────────────────────
-            snap = get_latest_snapshot(df.iloc[: i + 1])
-            math_score = self._calc_math(snap)
+            # ── חישוב ציון — משתמש ב-analyze_df עם params מה-config ──────────
+            params = {
+                "ATR_SL_MULTIPLIER": cfg.atr_sl_multiplier,
+                "RR_RATIO":          cfg.rr_ratio,
+            }
+            math_result = self._agent.analyze_df(
+                df.iloc[: i + 1], cfg.symbol, cfg.timeframe, params=params
+            )
+            math_score = math_result.bias_score
             fg_val     = self._get_fg(fg_df, timestamp)
             fg_score   = fg_to_score(fg_val)
             final      = round(
@@ -144,7 +156,8 @@ class BacktestEngine:
             side   = "BUY" if final > 0 else "SELL"
             slip   = cfg.slippage_pct * (1 if side == "BUY" else -1)
             entry  = round(candle["close"] * (1 + slip), 4)
-            sl_pct, tp_pct = self._agent._calc_sl_tp(snap)
+            sl_pct  = math_result.sl_distance_pct
+            tp_pct  = math_result.tp_distance_pct
 
             if side == "BUY":
                 sl = round(entry * (1 - sl_pct), 4)
@@ -236,16 +249,6 @@ class BacktestEngine:
         bars: int,
     ) -> BacktestTrade:
         return self._close(trade, candle["close"], "TIMEOUT", candle.name, bars)
-
-    def _calc_math(self, snap: dict) -> float:
-        scores = {
-            "trend":         self._agent._score_trend(snap),
-            "momentum_rsi":  self._agent._score_rsi(snap),
-            "momentum_macd": self._agent._score_macd(snap),
-            "volatility_bb": self._agent._score_bollinger(snap),
-            "volume_obv":    self._agent._score_obv(snap),
-        }
-        return self._agent._aggregate(scores)
 
     def _get_fg(self, fg_df: pd.DataFrame, ts: pd.Timestamp) -> int:
         mask = fg_df.index <= ts

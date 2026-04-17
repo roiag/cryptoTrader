@@ -8,6 +8,9 @@ import pandas_ta as ta
 from loguru import logger
 
 
+FIBONACCI_LOOKBACK = 50   # נרות לחישוב swing high/low
+
+
 def calculate_all(df: pd.DataFrame) -> pd.DataFrame:
     """
     מחשב את כל האינדיקטורים על DataFrame נתון.
@@ -56,6 +59,18 @@ def calculate_all(df: pd.DataFrame) -> pd.DataFrame:
     except Exception:
         pass  # VWAP דורש index עם timezone - לא תמיד זמין
 
+    # ── Fibonacci Retracement ──────────────────────────────────────────────────
+    rolling_high = df["high"].rolling(FIBONACCI_LOOKBACK).max()
+    rolling_low  = df["low"].rolling(FIBONACCI_LOOKBACK).min()
+    diff = rolling_high - rolling_low
+    df["fib_high"] = rolling_high
+    df["fib_low"]  = rolling_low
+    df["fib_0236"] = rolling_high - diff * 0.236
+    df["fib_0382"] = rolling_high - diff * 0.382
+    df["fib_050"]  = rolling_high - diff * 0.500
+    df["fib_0618"] = rolling_high - diff * 0.618
+    df["fib_0786"] = rolling_high - diff * 0.786
+
     logger.debug(f"Indicators calculated on {len(df)} candles")
     return df
 
@@ -90,4 +105,12 @@ def get_latest_snapshot(df: pd.DataFrame) -> dict:
         "obv": safe(row.get("obv")),
         "obv_prev_5": safe(df["obv"].iloc[-6]) if "obv" in df.columns else None,
         "vwap": safe(row.get("vwap")),
+        # Fibonacci retracement levels
+        "fib_high": safe(row.get("fib_high")),
+        "fib_low":  safe(row.get("fib_low")),
+        "fib_0236": safe(row.get("fib_0236")),
+        "fib_0382": safe(row.get("fib_0382")),
+        "fib_050":  safe(row.get("fib_050")),
+        "fib_0618": safe(row.get("fib_0618")),
+        "fib_0786": safe(row.get("fib_0786")),
     }

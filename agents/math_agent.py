@@ -5,6 +5,8 @@ Math Agent - ניתוח טכני-כמותי טהור.
 """
 
 from dataclasses import dataclass, field
+
+import pandas as pd
 from loguru import logger
 
 from data.exchange import ExchangeClient
@@ -32,6 +34,7 @@ class MathAgent:
 
     ATR_SL_MULTIPLIER = 1.5   # SL = 1.5x ATR
     RR_RATIO = 2.0             # TP = RR * SL
+    TRADE_THRESHOLD = 3.5      # ציון מינימלי לפתיחת עסקה
 
     def __init__(self):
         self.exchange = ExchangeClient()
@@ -46,7 +49,53 @@ class MathAgent:
 
         df   = self.exchange.fetch_ohlcv(symbol, tf)
         df   = calculate_all(df)
+
+        # חישוב ציון ראשי (ללא confluence)
+        result = self.analyze_df(df, symbol, tf)
+
+        # ── Multi-timeframe confluence ────────────────────────────────────────
+        confluence, conf_reasoning = self._multi_tf_confluence(symbol)
+        result.reasoning.extend(conf_reasoning)
+
+        # Blend: primary 80%, confluence 20%
+        blended = round(result.bias_score * 0.80 + confluence * 0.20, 2)
+        result.bias_score = blended
+        result.signal     = self._to_signal(blended)
+        result.component_scores["confluence_htf"] = round(confluence, 2)
+
+        logger.info(
+            f"[MathAgent] {symbol} → {result.signal} "
+            f"(blended={blended:+.1f}, conf={result.confidence:.0%})"
+        )
+        return result
+
+    def analyze_df(
+        self,
+        df: pd.DataFrame,
+        symbol: str,
+        timeframe: str,
+        params: dict | None = None,
+    ) -> MathResult:
+        """
+        מנתח DataFrame מוכן — משמש בעיקר ל-backtest ו-optimizer.
+        df צריך לכלול עמודות אינדיקטורים (calculate_all כבר רץ עליו).
+        אם העמודות חסרות — מחשב אוטומטית.
+
+        params (אופציונלי):
+          - ATR_SL_MULTIPLIER: float
+          - RR_RATIO: float
+          - weights: dict  (override ל-WEIGHTS)
+        """
+        params = params or {}
+
+        if "ema_20" not in df.columns:
+            df = calculate_all(df)
+
         snap = get_latest_snapshot(df)
+
+        atr_mul  = params.get("ATR_SL_MULTIPLIER", self.ATR_SL_MULTIPLIER)
+        rr_ratio = params.get("RR_RATIO", self.RR_RATIO)
+        weights  = params.get("weights", None)
 
         scores = {
             "trend":         self._score_trend(snap),
@@ -56,42 +105,33 @@ class MathAgent:
             "volume_obv":    self._score_obv(snap),
         }
 
+        # אינדיקטורים אופציונליים — רק אם זמינים
+        fib_score = self._score_fibonacci(snap)
+        if snap.get("fib_high") is not None:
+            scores["fibonacci"] = fib_score
+
+        vwap_score = self._score_vwap(snap)
+        if snap.get("vwap") is not None:
+            scores["vwap"] = vwap_score
+
         reasoning  = self._build_reasoning(snap, scores)
-        bias_score = self._aggregate(scores)
-
-        # ── Multi-timeframe confluence ────────────────────────────────────────
-        confluence, conf_reasoning = self._multi_tf_confluence(symbol)
-        reasoning.extend(conf_reasoning)
-
-        # Blend: primary 80%, confluence 20%
-        blended_score = round(bias_score * 0.80 + confluence * 0.20, 2)
-
-        signal     = self._to_signal(blended_score)
+        bias_score = self._aggregate(scores, weights)
+        signal     = self._to_signal(bias_score)
         confidence = self._calc_confidence(scores)
-        sl_pct, tp_pct = self._calc_sl_tp(snap)
+        sl_pct, tp_pct = self._calc_sl_tp(snap, atr_mul, rr_ratio)
 
-        result = MathResult(
+        return MathResult(
             symbol=symbol,
-            timeframe=tf,
-            bias_score=blended_score,
+            timeframe=timeframe,
+            bias_score=round(bias_score, 2),
             signal=signal,
             confidence=round(confidence, 2),
-            component_scores={
-                **{k: round(v, 2) for k, v in scores.items()},
-                "confluence_htf": round(confluence, 2),
-            },
+            component_scores={k: round(v, 2) for k, v in scores.items()},
             reasoning=reasoning,
             sl_distance_pct=round(sl_pct, 4),
             tp_distance_pct=round(tp_pct, 4),
             raw=snap,
         )
-
-        logger.info(
-            f"[MathAgent] {symbol} → {signal} "
-            f"(primary={bias_score:+.1f} confluence={confluence:+.1f} "
-            f"blended={blended_score:+.1f}, conf={confidence:.0%})"
-        )
-        return result
 
     def _multi_tf_confluence(self, symbol: str) -> tuple[float, list[str]]:
         """
@@ -251,30 +291,114 @@ class MathAgent:
             return -1.0   # volume יורד - bearish confirmation
         return 0.0
 
+    def _score_fibonacci(self, s: dict) -> float:
+        """
+        Fibonacci Retracement score: -1.5 עד +1.5
+        בודק אם המחיר נמצא ליד רמת Fibonacci מרכזית.
+        רמות 38.2% ו-61.8% הן החשובות ביותר.
+        """
+        price    = s.get("price")
+        fib_high = s.get("fib_high")
+        fib_low  = s.get("fib_low")
+        fib_mid  = s.get("fib_050")
+
+        if None in (price, fib_high, fib_low, fib_mid):
+            return 0.0
+
+        diff = fib_high - fib_low
+        if diff <= 0:
+            return 0.0
+
+        # רמות Fibonacci ומשקלי החשיבות שלהן
+        levels = [
+            (s.get("fib_0236"), 0.5),
+            (s.get("fib_0382"), 1.5),
+            (fib_mid,           1.0),
+            (s.get("fib_0618"), 1.5),
+            (s.get("fib_0786"), 0.5),
+        ]
+
+        best = 0.0
+        for level_price, weight in levels:
+            if level_price is None:
+                continue
+            proximity = abs(price - level_price) / diff
+            if proximity > 0.015:   # יותר מ-1.5% מהטווח — לא ברמה
+                continue
+            # כיוון: מעל fib_050 → bullish context (רמות הן support)
+            #        מתחת fib_050 → bearish context (רמות הן resistance)
+            direction = 1.0 if price >= fib_mid else -1.0
+            score = direction * weight
+            if abs(score) > abs(best):
+                best = score
+
+        return best
+
+    def _score_vwap(self, s: dict) -> float:
+        """
+        VWAP score: -1.0 עד +1.0
+        מחיר מעל VWAP → bias מוסדי bullish
+        מחיר מתחת VWAP → bias מוסדי bearish
+        """
+        price = s.get("price")
+        vwap  = s.get("vwap")
+
+        if None in (price, vwap) or vwap == 0:
+            return 0.0
+
+        pct_diff = (price - vwap) / vwap
+
+        if pct_diff >= 0.005:    # >0.5% מעל VWAP
+            return 1.0
+        if pct_diff >= 0.001:    # 0.1–0.5% מעל
+            return 0.5
+        if pct_diff <= -0.005:   # >0.5% מתחת VWAP
+            return -1.0
+        if pct_diff <= -0.001:   # 0.1–0.5% מתחת
+            return -0.5
+        return 0.0  # צמוד ל-VWAP
+
     # ── Aggregation ────────────────────────────────────────────────────────────
 
     WEIGHTS = {
-        "trend": 0.35,
-        "momentum_rsi": 0.20,
-        "momentum_macd": 0.25,
-        "volatility_bb": 0.10,
-        "volume_obv": 0.10,
+        "trend":         0.30,
+        "momentum_rsi":  0.18,
+        "momentum_macd": 0.22,
+        "volatility_bb": 0.08,
+        "volume_obv":    0.08,
+        "fibonacci":     0.08,   # חדש
+        "vwap":          0.06,   # חדש
     }
 
     MAX_RAW = {  # ציון מקסימלי אפשרי לכל קומפוננטה
-        "trend": 3.0,
-        "momentum_rsi": 2.0,
+        "trend":         3.0,
+        "momentum_rsi":  2.0,
         "momentum_macd": 2.0,
         "volatility_bb": 1.0,
-        "volume_obv": 1.0,
+        "volume_obv":    1.0,
+        "fibonacci":     1.5,   # חדש
+        "vwap":          1.0,   # חדש
     }
 
-    def _aggregate(self, scores: dict) -> float:
-        """ממיר את הציונים למספר אחד בין -10 ל-+10."""
+    def _aggregate(self, scores: dict, weights: dict | None = None) -> float:
+        """
+        ממיר את הציונים למספר אחד בין -10 ל-+10.
+        weights: אם None — משתמש ב-WEIGHTS הסטנדרטי.
+                 אם מועבר — מאפשר override ל-optimizer.
+        """
+        w = weights or self.WEIGHTS
         total = 0.0
-        for key, weight in self.WEIGHTS.items():
-            normalized = scores[key] / self.MAX_RAW[key]  # -1 עד +1
+        weight_sum = 0.0
+        for key, weight in w.items():
+            if key not in scores:
+                continue
+            max_r = self.MAX_RAW.get(key, 1.0)
+            normalized = scores[key] / max_r   # -1 עד +1
             total += normalized * weight
+            weight_sum += weight
+        # נרמול אם לא כל הקומפוננטות קיימות (למשל VWAP לא זמין)
+        if weight_sum > 0 and weight_sum < 1.0:
+            total = total / weight_sum
         return round(total * 10, 2)  # scale ל-±10
 
     def _to_signal(self, score: float) -> str:
@@ -296,19 +420,27 @@ class MathAgent:
         agreement = abs(positives - negatives) / len(vals)
         return round(0.5 + agreement * 0.5, 2)
 
-    def _calc_sl_tp(self, s: dict) -> tuple[float, float]:
+    def _calc_sl_tp(
+        self,
+        s: dict,
+        atr_mul: float | None = None,
+        rr: float | None = None,
+    ) -> tuple[float, float]:
         """
-        SL = 1.5x ATR כ-% מהמחיר
-        TP = SL * RR_RATIO
+        SL = atr_mul × ATR כ-% מהמחיר
+        TP = SL × rr
         """
-        atr = s["atr"]
+        atr_multiplier = atr_mul if atr_mul is not None else self.ATR_SL_MULTIPLIER
+        rr_ratio       = rr      if rr      is not None else self.RR_RATIO
+
+        atr   = s["atr"]
         price = s["price"]
 
         if atr is None or price is None or price == 0:
-            return 0.01, 0.02  # fallback: 1% SL, 2% TP
+            return 0.01, 0.01 * rr_ratio
 
-        sl_pct = (atr * self.ATR_SL_MULTIPLIER) / price
-        tp_pct = sl_pct * self.RR_RATIO
+        sl_pct = (atr * atr_multiplier) / price
+        tp_pct = sl_pct * rr_ratio
         return sl_pct, tp_pct
 
     def _build_reasoning(self, s: dict, scores: dict) -> list[str]:
